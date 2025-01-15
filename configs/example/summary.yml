@@ -15,7 +15,9 @@ init_kwargs:
       init_kwargs:
         jinja_template: >-
           給我這篇文章的摘要。
+
           # 文章
+          
           {{ text }}
         system_prompt: 你是一個擅長摘要的助理。
     - import_path: config_synth_flow.pipelines.AsyncOpenAIChat
