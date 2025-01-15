@@ -1,0 +1,27 @@
+import_path: config_synth_flow.executor.SequentialExecutor
+init_kwargs:
+  reader:
+    import_path: config_synth_flow.reader.HfDatasetReader
+    init_kwargs:
+      debug: true
+      dataset_kwargs:
+        path: json
+        data_files:
+          - data/test.jsonl
+  output_path: result/test/
+  resume: false
+  pipes:
+    - import_path: config_synth_flow.pipelines.OpenaiTemplateMapper
+      init_kwargs:
+        jinja_template: >-
+          給我這篇文章的摘要。
+          # 文章
+          {{ text }}
+        system_prompt: 你是一個擅長摘要的助理。
+    - import_path: config_synth_flow.pipelines.AsyncOpenAIChat
+      init_kwargs:
+        model: gpt-4o-mini
+        gen_kwargs:
+          top_p: 0.4
+          max_tokens: 100
+          temperature: 0.8

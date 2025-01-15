@@ -1,5 +1,11 @@
+# python
 *.lock
 __py*/
 .*/
+
+# for local development
 data/
 test/
+result/
+configs/*
+!configs/example

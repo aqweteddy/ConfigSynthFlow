@@ -1,9 +1,0 @@
-dataset_kwargs:
-  data_files: xxx
-
-model_clients:
-  4o-mini:
-    path: autogen_ext.models.openai.OpenAIChatCompletionClient
-    init_kwargs:
-      model: gpt-4
-agents:

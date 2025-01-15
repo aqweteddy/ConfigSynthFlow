@@ -4,7 +4,7 @@ from .base import BaseReader
 
 
 class HfDatasetReader(BaseReader):
-    def __post_init__(self, dataset_kwargs: dict):
+    def __post_init__(self, dataset_kwargs: dict, debug: bool = False):
         """
         Read the dataset from the given kwargs.
         
@@ -15,6 +15,9 @@ class HfDatasetReader(BaseReader):
         self.ds = self.load_dataset(dataset_kwargs)
         self.num_proc = self.dataset_kwargs.get("num_proc", 4)
 
+        if debug:
+            self.ds = self.ds.select(range(10))
+    
     def load_dataset(self, dataset_kwargs: dict) -> Dataset:
         ds = load_dataset(**dataset_kwargs)
         if not isinstance(ds, Dataset):

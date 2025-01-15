@@ -1,1 +1,1 @@
-from .sequantial import SequentialExecutor
+from .sequential import SequentialExecutor

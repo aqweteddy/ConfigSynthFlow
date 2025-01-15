@@ -7,15 +7,35 @@ import asyncio
 import random
 import json
 import time
+from jinja2 import Template
 
 
+class OpenaiTemplateMapper(BasePipeline):
+    def __post_init__(self, 
+                      jinja_template: str, 
+                      system_prompt: str = None,
+                      output_col: str = "_prompt"):
+        self.template = Template(jinja_template)
+        self.output_col = output_col
+        self.system_prompt = system_prompt
+    
+    def run_each(self, dct: dict) -> dict:
+        messages = []
+        if self.system_prompt:
+            messages.append({'role': 'system', 'content': self.system_prompt})
+        
+        prompt = self.template.render(dct)
+        messages.append({'role': 'user', 'content': prompt})
+        dct[self.output_col] = messages
+        return dct
+        
 class AsyncOpenAIChat(BasePipeline):
     def __post_init__(
         self,
         model: str = "gpt-4o-mini",
         openai_kwargs: dict = None,
         gen_kwargs: dict = None,
-        messages_col: str = "messages",
+        messages_col: str = "_prompt",
         output_col: str = "_response",
         concurrency: int = 100,
     ):
@@ -55,10 +75,11 @@ class AsyncOpenAIChat(BasePipeline):
                     for dct in dcts:
                         tasks.append(
                             client.chat.completions.create(
-                                dct[self.messages_col], **self.gen_kwargs
+                                messages=dct[self.messages_col], 
+                                **self.gen_kwargs
                             )
                         )
-            return await tqdm.gather(*tasks, desc=self.class_name)
+                return await tqdm.gather(*tasks, desc=self.class_name)
 
         resps = asyncio.run(async_batch_generate())
         return [resp.choices[0].message.content for resp in resps]

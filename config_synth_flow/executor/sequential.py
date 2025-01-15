@@ -1,7 +1,6 @@
 from ..base import BasePipeline, DictsGenerator
 from ..reader import BaseReader
 from datasets import Dataset
-from glob import glob
 from pathlib import Path
 
 
@@ -29,6 +28,8 @@ class SequentialExecutor(BasePipeline):
         self.chunk_size = chunk_size
         self.output_path = Path(output_path)
         self.resume = resume
+        
+        self.logger.info(f"Pipeline overview:\n{self}")
 
     def get_start_id(
         self,
@@ -48,7 +49,7 @@ class SequentialExecutor(BasePipeline):
             chunk_size (int, optional): Chunk size to split the dataset. Defaults to None.
         """
 
-        self.config.save_yaml(self.output_path + "/config.yml")
+        self.config.save(self.output_path / "config.yml")
         if self.resume:
             self.reader.set_done_ids(self.output_path)
 
@@ -61,12 +62,12 @@ class SequentialExecutor(BasePipeline):
                 self.logger.info(f"Processing chunk {chunk_id}")
                 result_ds = self(dcts)
                 dcts = []
-                self.write_output(result_ds, self.output_path / f"/{chunk_id:5d}.jsonl")
+                self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
                 chunk_id += 1
 
         if len(dcts) > 0:
             result_ds = self(dcts)
-            self.write_output(result_ds, self.output_path / f"/{chunk_id:5d}.jsonl")
+            self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
 
         self.logger.info("All Done!")
 

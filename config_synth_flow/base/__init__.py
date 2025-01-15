@@ -1,5 +1,5 @@
 import yaml
-
+from pathlib import Path
 from pydantic import BaseModel
 from typing import Any, Generator, ForwardRef, Union, Callable
 from importlib import import_module
@@ -66,14 +66,21 @@ class PipelineConfig(BaseModel):
 
     import_path: str | None = None
     lambda_func: str | Callable | None = None
-    init_kwargs: dict[str, PipelineConfig | Any] | None = None
+    init_kwargs: (
+        dict[
+            str, PipelineConfig | list[PipelineConfig] | dict[str, PipelineConfig] | Any
+        ]
+        | None
+    ) = None
     cfg_path: str | None = None
+    __original_kwargs: dict[str, Any]
 
     def model_post_init(self, _):
+        self.__original_kwargs = self.model_dump()
         if (
             self.import_path is None
             and self.lambda_func is None
-            or self.cfg_path is None
+            and self.cfg_path is None
         ):
             raise ValueError(
                 "config must have either `import_path` or `lambda_func` key or `cfg_path` key. Got: "
@@ -91,9 +98,10 @@ class PipelineConfig(BaseModel):
 
         return self
 
-    def save_yaml(self, path: str) -> None:
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
-            yaml.dump(self.model_dump(), f)
+            yaml.dump(self.__original_kwargs, f, allow_unicode=True)
 
 
 PipelineConfig.model_rebuild()
@@ -119,8 +127,7 @@ def wrap_lambda(lambda_func: callable, *args, **kwargs) -> Callable:
             try:
                 res = lambda_func(dct, *args, **kwargs)
             except TypeError as e:
-                print(f"Error in {lambda_func.__name__}: {e}")
-                raise e
+                raise TypeError(f"Error in {lambda_func.__name__}: {e}")
             if isinstance(res, dict):
                 for k, v in res.items():
                     dct[k] = v
@@ -132,6 +139,24 @@ def wrap_lambda(lambda_func: callable, *args, **kwargs) -> Callable:
                 raise ValueError("lambda function must return either a dict or a bool")
 
     return __wrapped
+
+
+def _get_class(config: PipelineConfig):
+    """
+    get and instantiate a pipeline class according to the config.import_path or config.lambda_func
+    """
+    if config.import_path:
+        module_, func = config.import_path.rsplit(".", maxsplit=1)
+        m = import_module(module_)
+    elif config.lambda_func:
+        return wrap_lambda(eval(config.lambda_func))
+    else:
+        raise ValueError(
+            "config must have either `import_path` or `lambda_func` key. Got: "
+            + str(config)
+        )
+
+    return getattr(m, func)(config)
 
 
 class BasePipeline(ABC):
@@ -199,23 +224,10 @@ class BasePipeline(ABC):
             if result:
                 yield result
 
-    @staticmethod
-    def get_class(config: PipelineConfig):
-        """
-        get and instantiate a pipeline class according to the config.import_path or config.lambda_func
-        """
-        if config.import_path:
-            module_, func = config.import_path.rsplit(".", maxsplit=1)
-            m = import_module(module_)
-        elif config.lambda_func:
-            return wrap_lambda(eval(config.lambda_func))
-        else:
-            raise ValueError(
-                "config must have either `import_path` or `lambda_func` key. Got: "
-                + str(config)
-            )
-
-        return getattr(m, func)(config)
+    def __repr__(self):
+        repr = f"{self.class_name}\n"
+        repr += " " * 4 + str(self.config)
+        return repr
 
     @classmethod
     def from_config(cls, config: list | dict | PipelineConfig) -> "BasePipeline":
@@ -230,11 +242,9 @@ class BasePipeline(ABC):
         """
         if isinstance(config, PipelineConfig):
             for k, v in config.init_kwargs.items():
-                if isinstance(v, PipelineConfig):
+                if isinstance(v, (PipelineConfig, list, dict)):
                     config.init_kwargs[k] = cls.from_config(v)
-                else:
-                    config.init_kwargs[k] = v
-            return cls.get_class(config)
+            return _get_class(config)
         elif isinstance(config, list):
             pipes = []
             for it in config:
@@ -255,3 +265,18 @@ class BasePipeline(ABC):
             raise ValueError(
                 "config must be either a list or a dict or a PipelineConfig"
             )
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "BasePipeline":
+        """
+        Load the pipeline from a yaml file.
+
+        Args:
+            path (str): Path to the yaml file.
+        Returns:
+            BasePipeline: Pipeline object.
+        """
+        with open(path, "r") as f:
+            cfg = yaml.safe_load(f)
+        cfg = PipelineConfig(**cfg)
+        return cls.from_config(cfg)

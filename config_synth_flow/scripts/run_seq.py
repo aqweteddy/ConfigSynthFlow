@@ -1,16 +1,13 @@
 import yaml
-from ..executor import SeqentialExecutor
+from argparse import ArgumentParser
 
-def main(
-    cfg_path: str,
-):
-    with open(cfg_path, "r") as f:
-        cfg = yaml.safe_load(f)
+from ..executor import SequentialExecutor
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument("-cfg_path", type=str, required=True)
+    args = parser.parse_args()
     
-    executor: SeqentialExecutor = SeqentialExecutor.from_config(cfg)
+    executor: SequentialExecutor = SequentialExecutor.from_yaml(args.cfg_path)
     executor.chunked_run()
     
-    
-if __name__ == "__main__":
-    from fire import Fire
-    Fire(main)
