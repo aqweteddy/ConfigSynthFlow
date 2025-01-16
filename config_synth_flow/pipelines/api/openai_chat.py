@@ -11,6 +11,8 @@ from jinja2 import Template
 
 
 class OpenaiTemplateMapper(BasePipeline):
+    required_packages = ["jinja2", "openai"]
+    
     def __post_init__(self, 
                       jinja_template: str, 
                       system_prompt: str = None,
@@ -28,7 +30,8 @@ class OpenaiTemplateMapper(BasePipeline):
         messages.append({'role': 'user', 'content': prompt})
         dct[self.output_col] = messages
         return dct
-        
+
+
 class AsyncOpenAIChat(BasePipeline):
     def __post_init__(
         self,
@@ -87,9 +90,21 @@ class AsyncOpenAIChat(BasePipeline):
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
         dcts = list(dcts)
         resps = self.batch_generate(dcts)
+        is_output_json = 'json' in self.gen_kwargs.get("response_format", {}).get("type", "")
         for dct, resp in zip(dcts, resps):
+            if is_output_json:
+                resp = self.read_json_str(resp)
             dct[self.output_col] = resp
             yield dct
+
+    def read_json_str(self, json_str: str) -> dict:
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            return eval(json_str)
+        except Exception:
+            return "error"
+
 
 
 class BatchOpenAIChat(AsyncOpenAIChat):

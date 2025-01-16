@@ -24,7 +24,7 @@ class SequentialExecutor(BasePipeline):
             pipes (list[BasePipeline], optional): List of pipelines to run sequentially.
         """
         self.reader = reader
-        self.pipes = pipes
+        self.pipes = pipes or []
         self.chunk_size = chunk_size
         self.output_path = Path(output_path)
         self.resume = resume
@@ -48,7 +48,7 @@ class SequentialExecutor(BasePipeline):
         Args:
             chunk_size (int, optional): Chunk size to split the dataset. Defaults to None.
         """
-
+        chunk_size = chunk_size or self.chunk_size
         self.config.save(self.output_path / "config.yml")
         if self.resume:
             self.reader.set_done_ids(self.output_path)

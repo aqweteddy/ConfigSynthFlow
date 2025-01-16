@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Any, Generator, ForwardRef, Union, Callable
-from importlib import import_module
+from importlib import import_module, util
 from abc import ABC
 from logging import getLogger, Formatter, StreamHandler
 import logging
@@ -158,11 +158,26 @@ def _get_class(config: PipelineConfig):
 
     return getattr(m, func)(config)
 
+def check_required_packages(packages: list[str]) -> None:
+    """
+    Check if the required packages are installed.
+
+    Args:
+        packages (list[str]): List of required packages.
+    """
+
+    missing_packages = [pkg for pkg in packages if not util.find_spec(pkg)]
+    if missing_packages:
+        raise ImportError(
+            f"Missing required packages: {missing_packages}."
+        )
+
 
 class BasePipeline(ABC):
     class_name: str
     config: PipelineConfig
-
+    required_packages: list[str]
+    
     def __init__(self, config: PipelineConfig) -> None:
         """
         Base class for all pipelines.
@@ -173,6 +188,8 @@ class BasePipeline(ABC):
 
         self.config = config
         self.class_name = self.__class__.__name__
+        self.required_packages = getattr(self, "required_packages", [])
+        check_required_packages(self.required_packages)
         self.__post_init__(**config.init_kwargs)
 
     @property

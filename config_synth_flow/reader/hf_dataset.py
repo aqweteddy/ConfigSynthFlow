@@ -4,6 +4,7 @@ from .base import BaseReader
 
 
 class HfDatasetReader(BaseReader):
+    required_packages: list = ["datasets"]
     def __post_init__(self, dataset_kwargs: dict, debug: bool = False):
         """
         Read the dataset from the given kwargs.

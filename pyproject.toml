@@ -16,15 +16,19 @@ openai = "^1.59.7"
 qdrant-client = "^1.12.2"
 jinja2 = "^3.1.5"
 
-
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.9.1"
+
+
+[tool.poetry.group.docling.dependencies]
+docling = "^2.15.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
+
 
 [tool.poetry.scripts]
 run-seq = "config_synth_flow.scripts.run_seq:main"

@@ -4,6 +4,8 @@ from qdrant_client import QdrantClient, models
 
 
 class QdrantApiRetriever(BasePipeline):
+    required_packages = ["qdrant_client"]
+    
     def __post_init__(
         self,
         embedder: InfinityApiEmbedder,
