@@ -15,7 +15,8 @@ class DoclingReader(BaseReader):
                       num_thread: int = 10,
                       pdf_ocr: bool = False,
                       doc_format: list[str] = ["xlsx", 'docx', 'pdf', 'pptx', 
-                                               'md', 'html',  'image']
+                                               'md', 'html',  'image'],
+                      callback_lambda_funcs: list[str] = None
     ):
         self.data_path = Path(data_path)
         pdf_option = PdfPipelineOptions(

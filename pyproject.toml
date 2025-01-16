@@ -23,6 +23,10 @@ ruff = "^0.9.1"
 [tool.poetry.group.docling.dependencies]
 docling = "^2.15.1"
 
+
+[tool.poetry.group.dedup.dependencies]
+rensa = "^0.1.7"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
