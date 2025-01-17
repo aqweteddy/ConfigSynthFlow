@@ -21,10 +21,12 @@ class DoclingReader(BaseReader):
                       fix_encoding: bool = True,
                       doc_format: list[str] = ["xlsx", 'docx', 'pdf', 'pptx', 
                                                'md', 'html',  'image'],
+                      debug: bool = False,
     ):
         self.data_path = Path(data_path)
         self.num_proc = num_proc
         self.fix_encoding = fix_encoding
+        self.debug = debug
         
         pdf_option = PdfPipelineOptions(
             do_ocr=pdf_ocr
@@ -40,27 +42,37 @@ class DoclingReader(BaseReader):
         self.num_thread = num_thread
         os.environ['OMP_NUM_THREADS'] = str(num_thread)
     
+    
+    def _process(self, files: list[Path], idx: int) -> list[dict]:
+        cnt = 0
+        result = []
+        for doc in self.doc_converter_mapper[idx].convert_all(files, raises_on_error=False):
+            cnt += 1
+            if cnt % 100 == 0:
+                self.logger.info(f"Processes {idx} | Parsed {cnt} documents.")
+            text = self.get_text(doc)
+            
+            if self.fix_encoding and ftfy.is_bad(text):
+                text = ftfy.fix_text(text)
+            
+            if self.fix_encoding and ftfy.is_bad(doc.input.file.as_posix()):
+                file_path = ftfy.fix_text(doc.input.file.as_posix())
+            else:
+                file_path = doc.input.file.as_posix()
+            
+            result.append({
+                "text": text,
+                "file_path": file_path
+            })
+        return result
+
     def mp_run(self, file_list: list[Path]):
-        def __process(files: list[Path], idx: int) -> list[dict]:
-            cnt = 0
-            result = []
-            for doc in self.doc_converter_mapper[idx].convert_all(files):
-                cnt += 1
-                if cnt % 100 == 0:
-                    self.logger.info(f"Processes {idx} | Parsed {cnt} documents.")
-                text = self.get_text(doc)
-                
-                if self.fix_encoding and ftfy.is_bad(text):
-                    text = ftfy.fix_text(text)
-                
-                result.append({
-                    "text": text,
-                    "file_path": doc.input.file.as_posix(),
-                })
-            return result
+        
         
         with ProcessPoolExecutor(max_workers=self.num_proc) as executor:
-            results = executor.map(__process, file_list, self.num_proc)
+            results = executor.map(self._process, 
+                                   [file_list[i::self.num_proc] for i in range(self.num_proc)], 
+                                   range(self.num_proc))
         
         return [item for sublist in results for item in sublist]
             
@@ -70,6 +82,10 @@ class DoclingReader(BaseReader):
     def read(self):
         self.logger.info(f"Reading documents from {self.data_path}")
         files = [f for f in self.data_path.rglob("*") if f.is_file()]
+        
+        if self.debug:
+            files = files[:5]
+        
         self.logger.info(f"There are {len(files)} files in the directory.")
         cnt = 0
         
