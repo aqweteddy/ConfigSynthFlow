@@ -46,7 +46,6 @@ class MinHashDeduplication(BasePipeline):
         - sentence: Split the text into sentences with `sentence_split_regex` and deduplicate at the sentence level.
         - token: Tokenize the text with `tokenizer_name` and deduplicate at the token level.
         
-        
         Args:
             num_perm (int, optional): Number of permutation for MinHash. Defaults to 64.
             text_col (str, optional): Text column name. Defaults to "text".
