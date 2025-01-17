@@ -138,7 +138,7 @@ class InfinityApiEmbedder(BasePipeline):
                     yield dct
                 batch_dcts = []
         
-        embeddings = self.get_embeddings([d[self.query_col] for d in batch_dcts])
+        embeddings = self.get_embeddings([self.query_lambda_col(d) for d in batch_dcts])
         for dct, emb in zip(batch_dcts, embeddings):
             dct[self.output_col] = emb
             yield dct
