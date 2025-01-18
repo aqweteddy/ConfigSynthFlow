@@ -1,5 +1,6 @@
 from ...base import BasePipeline, DictsGenerator
 import requests
+from concurrent.futures import ThreadPoolExecutor
 
 
 class InfinityApiReranker(BasePipeline):
@@ -11,8 +12,10 @@ class InfinityApiReranker(BasePipeline):
         similarity_threshold: float = 0.5,
         query_lambda_col: str = 'lambda x: x["query"]', # lambda function to extract query str from the input dict
         document_lambda_col: str = 'lambda x: x["documents"]', # lambda function to extract documents list[str] from the input dict
+        metadata_lambda_col: str = None, # lambda function to extract metadata dict from the input dict
         output_col: str = "reranked",
         timeout: int = 20,
+        num_concurrent: int = 4,
     ) -> None:
         """Pipeline to rerank documents using Infinity API.
         
@@ -30,10 +33,12 @@ class InfinityApiReranker(BasePipeline):
         self.model_name = model_name
         self.query_lambda_col = eval(query_lambda_col)
         self.document_lambda_col = eval(document_lambda_col)
+        self.metadata_lambda_col = eval(metadata_lambda_col) if metadata_lambda_col else None
         self.output_col = output_col
         self.k_range = k_range
         self.similarity_threshold = similarity_threshold
         self.timeout = timeout
+        self.num_concurrent = num_concurrent
         
         if not self.host.startswith("http"):
             self.host = "http://" + self.host
@@ -70,12 +75,26 @@ class InfinityApiReranker(BasePipeline):
         query = self.query_lambda_col(dct)
         docs = self.document_lambda_col(dct)
         scores = self._post(query, docs)
-        result = [{"text": doc, "score": score} for doc, score in zip(docs, scores)]
+        
+        if self.metadata_lambda_col:
+            metadata_list = self.metadata_lambda_col(dct)
+            result = [{"text": doc, "score": score, "metadata": metadata} for doc, score, metadata in zip(docs, scores, metadata_list)]
+        else:
+            result = [{"text": doc, "score": score} for doc, score in zip(docs, scores)]
         result = filter(lambda x: x["score"] > self.similarity_threshold, result)
         result = sorted(result, key=lambda x: x["score"], reverse=True)[self.k_range[0]:self.k_range[1]]
         dct[self.output_col] = result
         
         return dct
+
+    def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
+        if self.num_concurrent == 1:
+            for dct in dcts:
+                yield self.run_each(dct)
+        else:
+            with ThreadPoolExecutor(max_workers=self.num_concurrent) as executor:
+                for dct in executor.map(self.run_each, dcts):
+                    yield dct
 
 
 class InfinityApiEmbedder(BasePipeline):
@@ -85,6 +104,7 @@ class InfinityApiEmbedder(BasePipeline):
         batch_size: int = 32,
         query_lambda_col: str = 'lambda x: x["query"]',
         output_col: str = "_embeddings",
+        num_concurrent: int = 4,
     ):
         """Pipeline to get embeddings from Infinity API.
         
@@ -100,6 +120,7 @@ class InfinityApiEmbedder(BasePipeline):
         self.query_lambda_col = eval(query_lambda_col)
         self.batch_size = batch_size
         self.output_col = output_col
+        self.num_concurrent = num_concurrent
         
         if not self.host.startswith("http"):
             self.host = "http://" + self.host
@@ -118,14 +139,26 @@ class InfinityApiEmbedder(BasePipeline):
             json=params,
             timeout=20,
         ).json()['data']
+        
+        
+        
         res = sorted(res, key=lambda x: x['index'])
         res = [r['embedding'] for r in res]
         
         return res
     
     def get_embeddings(self, query_list: list[str]) -> list[list[float]]:
-        return self._post(query_list)
-    
+        if self.num_concurrent == 1:
+            return self._post(query_list)
+        
+        with ThreadPoolExecutor(max_workers=self.num_concurrent) as executor:
+            small_batch = self.batch_size // self.num_concurrent
+            for i in range(0, len(query_list), small_batch):
+                batch = query_list[i:i+small_batch]
+                result = list(executor.map(self._post, batch))
+                result = [r for res in result for r in res]
+        return result
+        
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
         batch_dcts = []
         

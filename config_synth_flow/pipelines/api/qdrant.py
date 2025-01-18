@@ -1,5 +1,6 @@
 from ...base import BasePipeline, DictsGenerator
 from .infinity import InfinityApiEmbedder
+from typing import Generator
 from qdrant_client import QdrantClient, models
 
 
@@ -56,6 +57,15 @@ class QdrantApiRetriever(BasePipeline):
         if batch:
             yield batch
 
+    def dedup_text_content(self, text_list: list[dict]) -> Generator[dict, None, None]:
+        used_texts = set()
+        result = []
+        for text in text_list:
+            if text[self.qdrant_text_key] not in used_texts:
+                used_texts.add(text[self.qdrant_text_key])
+                result.append(text)
+        return result
+    
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
         for chunked_dcts in self.__chunk_batch(dcts):
             queries = [self.embedder.query_lambda_col(d) for d in chunked_dcts]
@@ -78,12 +88,15 @@ class QdrantApiRetriever(BasePipeline):
 
             for dct, retrieved in zip(chunked_dcts, retrieved_list):
                 output = [
-                    r.payload[self.qdrant_text_key] for r in retrieved
+                    {'text': r.payload[self.qdrant_text_key], 
+                     'score': r.score, 
+                     'collection': self.collection_name} 
+                    for r in retrieved
                 ][self.k_range[0] : self.k_range[1]]
                 if self.output_col in dct:
                     dct[self.output_col].extend(output)
                 else:
                     dct[self.output_col] = output
                 if self.exact_deduplication:
-                    dct[self.output_col] = list(set(dct[self.output_col]))
+                    dct[self.output_col] = self.dedup_text_content(dct[self.output_col])
                 yield dct

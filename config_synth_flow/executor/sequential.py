@@ -2,6 +2,7 @@ from ..base import BasePipeline, DictsGenerator
 from ..reader import BaseReader
 from datasets import Dataset
 from pathlib import Path
+from tqdm import tqdm
 
 
 class SequentialExecutor(BasePipeline):
@@ -28,6 +29,7 @@ class SequentialExecutor(BasePipeline):
         self.chunk_size = chunk_size
         self.output_path = Path(output_path)
         self.resume = resume
+        self.cnt = 0
         
         self.logger.info(f"Pipeline overview:\n{self}")
 
@@ -85,7 +87,10 @@ class SequentialExecutor(BasePipeline):
         )
 
     def __call__(self, dcts: DictsGenerator) -> Dataset:
+        prog_bar = tqdm(total=self.chunk_size, desc="Processing")
         for pipe in self.pipes:
             dcts = pipe(dcts)
+            prog_bar.update(1)
+            
 
         return Dataset.from_list(list(dcts))
