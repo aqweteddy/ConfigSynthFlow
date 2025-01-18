@@ -3,7 +3,7 @@ import requests
 
 
 class InfinityApiReranker(BasePipeline):
-    def __init__(
+    def __post_init__(
         self,
         api_base: str,
         model_name: str,
@@ -12,6 +12,7 @@ class InfinityApiReranker(BasePipeline):
         query_lambda_col: str = 'lambda x: x["query"]', # lambda function to extract query str from the input dict
         document_lambda_col: str = 'lambda x: x["documents"]', # lambda function to extract documents list[str] from the input dict
         output_col: str = "reranked",
+        timeout: int = 20,
     ) -> None:
         """Pipeline to rerank documents using Infinity API.
         
@@ -32,6 +33,7 @@ class InfinityApiReranker(BasePipeline):
         self.output_col = output_col
         self.k_range = k_range
         self.similarity_threshold = similarity_threshold
+        self.timeout = timeout
         
         if not self.host.startswith("http"):
             self.host = "http://" + self.host
@@ -58,10 +60,9 @@ class InfinityApiReranker(BasePipeline):
         res = requests.post(
             url,
             json=params,
-            timeout=20,
+            timeout=self.timeout
         ).json()
-        
-        result = sorted(res['result'], key=lambda x: x['index'])
+        result = sorted(res['results'], key=lambda x: x['index'])
         
         return [r["relevance_score"] for r in result]
 

@@ -239,7 +239,10 @@ class BasePipeline(ABC):
         for dct in dcts:
             result = self.run_each(dct)
             if result:
-                yield result
+                if isinstance(result, dict):
+                    yield result
+                else:
+                    yield from result
 
     def __repr__(self):
         repr = f"{self.class_name}\n"

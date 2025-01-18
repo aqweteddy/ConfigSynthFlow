@@ -67,11 +67,11 @@ class DoclingReader(BaseReader):
         with ProcessPoolExecutor(max_workers=self.num_proc) as executor:
             for i in range(0, len(file_list), self.batch_size):
                 flist = file_list[i : i + self.batch_size]
-                results = executor.map(
+                results = list(executor.map(
                     self._process,
                     [file_list[j :: self.num_proc] for j in range(self.num_proc)],
                     range(self.num_proc),
-                )
+                ))
                 cnt += len(flist)
                 yield from [item for sublist in results for item in sublist]
                 self.logger.info(f"Processed {cnt} files.")
@@ -81,7 +81,7 @@ class DoclingReader(BaseReader):
 
     def read(self):
         self.logger.info(f"Reading documents from {self.data_path}")
-        files = [f for f in self.data_path.rglob("*") if f.is_file()]
+        files = [f for f in self.data_path.rglob("*") if f.is_file()][:10000]
 
         if self.debug:
             files = files[:5]

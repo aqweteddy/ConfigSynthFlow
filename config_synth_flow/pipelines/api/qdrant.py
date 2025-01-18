@@ -13,9 +13,10 @@ class QdrantApiRetriever(BasePipeline):
         api_port: int = 6333,
         collection_name: str = "default",
         qdrant_text_key: str = "text",
-        k_range: tuple[int, int] = (1, 5),
-        similarity_threshold: float = 0.5,
+        k_range: tuple[int, int] = (0, 5),
+        similarity_threshold: float = 0.4,
         output_col: str = "_retrieved",
+        exact_deduplication: bool = True,
         timeout: int = 20,
     ):
         """Retreive documents from QdrantDB
@@ -39,6 +40,7 @@ class QdrantApiRetriever(BasePipeline):
         self.output_col = output_col
         self.qdrant_text_key = qdrant_text_key
         self.timeout = timeout
+        self.exact_deduplication = exact_deduplication
 
         self.qdrant_cli = QdrantClient(url=self.host, port=api_port)
 
@@ -56,7 +58,7 @@ class QdrantApiRetriever(BasePipeline):
 
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
         for chunked_dcts in self.__chunk_batch(dcts):
-            queries = [d[self.embedder.query_lambda_col(d)] for d in chunked_dcts]
+            queries = [self.embedder.query_lambda_col(d) for d in chunked_dcts]
             embeddings = self.embedder.get_embeddings(queries)
             reqs = [
                 models.SearchRequest(
@@ -75,7 +77,13 @@ class QdrantApiRetriever(BasePipeline):
             )
 
             for dct, retrieved in zip(chunked_dcts, retrieved_list):
-                dct[self.output_col] = [
+                output = [
                     r.payload[self.qdrant_text_key] for r in retrieved
                 ][self.k_range[0] : self.k_range[1]]
+                if self.output_col in dct:
+                    dct[self.output_col].extend(output)
+                else:
+                    dct[self.output_col] = output
+                if self.exact_deduplication:
+                    dct[self.output_col] = list(set(dct[self.output_col]))
                 yield dct
