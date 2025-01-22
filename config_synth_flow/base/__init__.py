@@ -6,6 +6,8 @@ from importlib import import_module, util
 from abc import ABC
 from logging import getLogger, Formatter, StreamHandler
 import logging
+import asyncio
+from tqdm.asyncio import tqdm as atqdm
 
 
 DictsGenerator = Union[list[dict[str, Any]], Generator[dict[str, Any], None, None]]
@@ -72,6 +74,7 @@ class PipelineConfig(BaseModel):
         ]
         | None
     ) = None
+    async_concurrency: int = 100
     cfg_path: str | None = None
     __original_kwargs: dict[str, Any]
 
@@ -158,6 +161,7 @@ def _get_class(config: PipelineConfig):
 
     return getattr(m, func)(config)
 
+
 def check_required_packages(packages: list[str]) -> None:
     """
     Check if the required packages are installed.
@@ -168,16 +172,14 @@ def check_required_packages(packages: list[str]) -> None:
 
     missing_packages = [pkg for pkg in packages if not util.find_spec(pkg)]
     if missing_packages:
-        raise ImportError(
-            f"Missing required packages: {missing_packages}."
-        )
+        raise ImportError(f"Missing required packages: {missing_packages}.")
 
 
 class BasePipeline(ABC):
     class_name: str
     config: PipelineConfig
     required_packages: list[str]
-    
+
     def __init__(self, config: PipelineConfig) -> None:
         """
         Base class for all pipelines.
@@ -190,6 +192,7 @@ class BasePipeline(ABC):
         self.class_name = self.__class__.__name__
         self.required_packages = getattr(self, "required_packages", [])
         check_required_packages(self.required_packages)
+
         self.__post_init__(**config.init_kwargs)
 
     @property
@@ -300,3 +303,54 @@ class BasePipeline(ABC):
             cfg = yaml.safe_load(f)
         cfg = PipelineConfig(**cfg)
         return cls.from_config(cfg)
+
+
+class AsyncBasePipeline(BasePipeline):
+    def __init__(self, config: PipelineConfig):
+        super().__init__(config)
+
+    @property
+    def semaphore(self):
+        return asyncio.Semaphore(self.config.async_concurrency)
+
+    async def run_each(self, dct: dict) -> dict:
+        """
+        Run the pipeline on each input sample asynchronously.
+
+        Args:
+            dct (dict): Input dictionary.
+        Returns:
+            dict: Output dictionary.
+        """
+
+        raise NotImplementedError(f"{self.class_name} is missing `run_each` method")
+
+    async def _async_call(self, dcts: list[dict]) -> list[dict]:
+        sem = asyncio.Semaphore(self.config.async_concurrency)
+        async def limit_concurrency(sem, coro):
+            async with sem:
+                return await coro
+        tasks = []
+        for dct in dcts:
+            tasks.append(limit_concurrency(sem, self.run_each(dct)))
+        
+        return await atqdm.gather(
+                *tasks, 
+                desc=self.class_name
+        )
+
+    def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
+        """
+        Run the pipeline on a generator of input samples.
+
+        Args:
+            dcts (DictsGenerator): Input samples.
+        Returns:
+            DictsGenerator: Generator of output samples.
+        """
+
+        for dct in asyncio.run(self._async_call(list(dcts))):
+            if isinstance(dct, dict):
+                yield dct
+            else:
+                yield from dct

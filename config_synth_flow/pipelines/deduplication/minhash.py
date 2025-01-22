@@ -37,7 +37,7 @@ class MinHashDeduplication(BasePipeline):
         num_perm: int = 64,
         text_col: str = "text",
         dedup_level: Literal["sentence", "token"] = "sentence",
-        sentence_split_regex: str = "\n|。",
+        sentence_split_regex: str = "\n|。|、|，|；|：|？",
         tokenizer_name: str = "Qwen/Qwen2.5-0.5B",
         token_col: str = "_tokenized",
     ):

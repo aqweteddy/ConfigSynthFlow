@@ -70,6 +70,7 @@ class QdrantApiRetriever(BasePipeline):
         for chunked_dcts in self.__chunk_batch(dcts):
             queries = [self.embedder.query_lambda_col(d) for d in chunked_dcts]
             embeddings = self.embedder.get_embeddings(queries)
+            
             reqs = [
                 models.SearchRequest(
                     vector=emb,

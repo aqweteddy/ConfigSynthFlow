@@ -2,13 +2,16 @@ from .base import BaseReader
 import ftfy
 
 from concurrent.futures import ProcessPoolExecutor
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-
-from docling.datamodel.document import ConversionResult
-from docling.datamodel.base_models import InputFormat
 from pathlib import Path
 import os
+try:
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+    from docling.datamodel.document import ConversionResult
+    from docling.datamodel.base_models import InputFormat
+except ImportError:
+    pass
 
 
 class DoclingReader(BaseReader):
@@ -25,6 +28,7 @@ class DoclingReader(BaseReader):
         doc_format: list[str] = ["xlsx", "docx", "pdf", "pptx", "md", "html", "image"],
         debug: bool = False,
     ):
+        
         self.data_path = Path(data_path)
         self.num_proc = num_proc
         self.fix_encoding = fix_encoding
@@ -46,6 +50,7 @@ class DoclingReader(BaseReader):
 
     def _process(self, files: list[Path], idx: int) -> list[dict]:
         result = []
+        
         for doc in self.doc_converter_mapper[idx].convert_all(
             files, raises_on_error=False
         ):

@@ -17,7 +17,8 @@ class HfDatasetReader(BaseReader):
         self.num_proc = self.dataset_kwargs.get("num_proc", 4)
 
         if debug:
-            self.ds = self.ds.select(range(10))
+            num = 10 if debug is True else debug
+            self.ds = self.ds.select(range(num))
     
     def load_dataset(self, dataset_kwargs: dict) -> Dataset:
         ds = load_dataset(**dataset_kwargs)

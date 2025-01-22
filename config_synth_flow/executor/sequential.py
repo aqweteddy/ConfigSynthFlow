@@ -37,10 +37,10 @@ class SequentialExecutor(BasePipeline):
         self,
     ) -> int:
         if self.resume:
-            done_files = self.output_path.glob("*.jsonl")
+            done_files = list(self.output_path.glob("*.jsonl"))
             if len(done_files) == 0:
                 return 0
-            return max([int(f.stem.split("_")[-1]) for f in done_files])
+            return max([int(f.stem.split("_")[-1]) for f in done_files]) + 1
         return 0
 
     def chunked_run(self, chunk_size: int = None) -> None:
@@ -87,10 +87,6 @@ class SequentialExecutor(BasePipeline):
         )
 
     def __call__(self, dcts: DictsGenerator) -> Dataset:
-        prog_bar = tqdm(total=self.chunk_size, desc="Processing")
         for pipe in self.pipes:
-            dcts = pipe(dcts)
-            prog_bar.update(1)
-            
-
+            dcts = pipe(dcts)        
         return Dataset.from_list(list(dcts))

@@ -2,6 +2,7 @@ from typing import Any
 from hashlib import md5
 from datasets import load_dataset
 from ..base import BasePipeline, DictsGenerator
+from glob import glob
 
 
 class BaseReader(BasePipeline):
@@ -46,7 +47,10 @@ class BaseReader(BasePipeline):
             num_proc (int, optional): Number of processes to load the dataset. Defaults to 4.
         
         """
-        ds = load_dataset("json", data_dir=output_path, num_proc=num_proc)["train"]
+        done_files = glob(f"{output_path}/*.jsonl")
+        if len(done_files) == 0:
+            return
+        ds = load_dataset("json", data_files=done_files, num_proc=1)["train"]
         self.unique_id_set = set(ds["hash_id"])
         self.resume = True
         ds.cleanup_cache_files()
