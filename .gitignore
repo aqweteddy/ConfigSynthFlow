@@ -9,3 +9,4 @@ test/
 result/
 configs/*
 !configs/example
+local_script/

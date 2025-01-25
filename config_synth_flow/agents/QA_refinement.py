@@ -1,6 +1,8 @@
 from .base import BaseAgent
 from pydantic import BaseModel
 from jinja2 import Template
+import json, copy
+from typing import Literal
 from .constant import DEFAULT_EDIT_QA_TEMPLATE, DEFAULT_VALID_QA_TEMPLATE
 
 
@@ -30,7 +32,7 @@ class EditAgent(BaseAgent):
         model: str = "gpt-4o-mini",
         openai_kwargs: dict = None,
         gen_kwargs: dict = None,
-        edit_template: str = DEFAULT_EDIT_QA_TEMPLATE,
+        edit_template: str | Literal['edit', 'evolve'] = 'edit',
         system_prompt: str = "你是一個擅長改進對話的助理，請根據建議，對對話進行改進，並嚴格遵守輸出格式。",
     ):
         super().__post_init__(
@@ -38,7 +40,12 @@ class EditAgent(BaseAgent):
             openai_kwargs=openai_kwargs,
             gen_kwargs=gen_kwargs,
         )
+        
+        if edit_template in ['edit', 'evolve']:
+            edit_template = DEFAULT_EDIT_QA_TEMPLATE[edit_template]
+        
         self.edit_template = Template(edit_template)
+        
         self.system_prompt = system_prompt
         self.gen_kwargs["response_format"] = QueryResponseItem
 
@@ -53,7 +60,7 @@ class EditAgent(BaseAgent):
         prompt.append({"role": "user", "content": self.edit_template.render(**dct)})
         dct.pop("mes_str")
         dct.pop("suggestion")
-        return self.chat(prompt, "user")
+        return self.chat(prompt)
 
 
 class ValidAgent(BaseAgent):
@@ -62,7 +69,7 @@ class ValidAgent(BaseAgent):
         model: str = "gpt-4o-mini",
         openai_kwargs: dict = None,
         gen_kwargs: dict = None,
-        validation_template: str = DEFAULT_VALID_QA_TEMPLATE,
+        validation_template: str | Literal['validate', 'evolve'] = 'validate',
         system_prompt: str = "你是一個對話品質評估專家，請根據對話內容，對對話進行評估，並嚴格遵守輸出格式。",
     ):
         super().__post_init__(
@@ -70,11 +77,17 @@ class ValidAgent(BaseAgent):
             openai_kwargs=openai_kwargs,
             gen_kwargs=gen_kwargs,
         )
+        
+        if validation_template in DEFAULT_VALID_QA_TEMPLATE:
+            validation_template = DEFAULT_VALID_QA_TEMPLATE[validation_template]
+        elif r"{{" not in validation_template:
+                self.logger.warning("There is no jinja2 template in the validation_template. Please check if it is correct.")
+        
         self.validation_template = Template(validation_template)
         self.system_prompt = system_prompt
         self.gen_kwargs["response_format"] = ValidResponseItem
 
-    def run_agent(self, messages: list[dict[str, str]], dct: dict) -> ValidResponseItem:
+    async def run_agent(self, messages: list[dict[str, str]], dct: dict) -> ValidResponseItem:
         prompt = []
         mes_str = messages_to_text(messages)
         if self.system_prompt:
@@ -84,7 +97,7 @@ class ValidAgent(BaseAgent):
             {"role": "user", "content": self.validation_template.render(**dct)}
         )
         dct.pop("mes_str")
-        return self.chat(prompt)
+        return await self.chat(prompt)
 
 
 class QARefinementAgent(BaseAgent):
@@ -97,7 +110,6 @@ class QARefinementAgent(BaseAgent):
         messages_col: str = "messages",
         output_col: str = "messages",
         history_col: str = None,
-        # mode: Literal["refine", "multiturn"] = "refine",  # multiturn or refine
     ):
         """
         QA Refinement Agent
@@ -124,16 +136,17 @@ class QARefinementAgent(BaseAgent):
         self.history_col = history_col
 
     async def run_agent(self, messages: list[dict[str, str]], dct: dict) -> dict:
-        history, result = [], []
+        history = []
 
         valid_res: ValidResponseItem = await self.validation_agent.run_agent(messages, dct)
         history.append({"role": "validation", "content": valid_res.model_dump()})
+        
         if self.early_stop_criteria_lambda(valid_res):
             return {"history": history, "messages": messages}
 
         for i in range(self.max_rounds):
             # Refinement
-            res: QueryResponseItem = await self.edit_agent.run_agent(messages, dct)
+            res: QueryResponseItem = await self.edit_agent.run_agent(messages, dct, valid_res.suggestion)
             history.append({"role": "refinement", "content": res.model_dump()})
             history.append({"role": "user", "content": res.query})
             history.append({"role": "assistant", "content": res.response})
@@ -150,12 +163,11 @@ class QARefinementAgent(BaseAgent):
 
             if self.early_stop_criteria_lambda(valid_res):
                 break
-
-        return {"history": history, "messages": result}
+        return {"history": history, "messages": messages}
 
     async def run_each(self, dct: dict) -> dict:
         output = await self.run_agent(dct[self.messages_col], dct)
         dct[self.output_col] = output["messages"]
         if self.history_col:
-            dct[self.history_col] = output["history"]
+            dct[self.history_col] = json.dumps(output["history"], ensure_ascii=False)
         return dct

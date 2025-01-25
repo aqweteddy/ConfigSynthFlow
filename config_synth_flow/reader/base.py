@@ -22,10 +22,15 @@ class BaseReader(BasePipeline):
         """
         implicit to call the `read` method, generate the unique id for each sample and yield the sample.
         """
+        skipped_cnt = 0
         for dct in self.read():
             dct['hash_id'] = self.get_unique_id(dct)
             if self.resume and dct['hash_id'] in self.unique_id_set:
+                skipped_cnt += 1
+                if skipped_cnt % 1000 == 0:
+                    self.logger.info(f"Skip {skipped_cnt} samples")
                 continue
+        
             yield dct
         
     def read(self) -> DictsGenerator:
@@ -50,7 +55,7 @@ class BaseReader(BasePipeline):
         done_files = glob(f"{output_path}/*.jsonl")
         if len(done_files) == 0:
             return
-        ds = load_dataset("json", data_files=done_files, num_proc=1)["train"]
+        ds = load_dataset("json", data_files=done_files, num_proc=4)["train"]
         self.unique_id_set = set(ds["hash_id"])
         self.resume = True
         ds.cleanup_cache_files()

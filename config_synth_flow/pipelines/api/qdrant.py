@@ -66,6 +66,24 @@ class QdrantApiRetriever(BasePipeline):
                 result.append(text)
         return result
     
+    def batch_insert(self, 
+                     dcts: DictsGenerator,
+                     collection_name: str = None,
+                     ):
+        payloads = [
+            {
+                'id': d.get('id', None),
+                self.qdrant_text_key: d[self.qdrant_text_key],
+                'metadata': d.get('metadata', {}),
+            }
+            for d in dcts
+        ]
+        self.qdrant_cli.upload_collection(
+            collection_name=collection_name,
+            vectors=[self.embedder.query_lambda_col(d) for d in dcts],
+            payload=payloads
+        )
+    
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
         for chunked_dcts in self.__chunk_batch(dcts):
             queries = [self.embedder.query_lambda_col(d) for d in chunked_dcts]

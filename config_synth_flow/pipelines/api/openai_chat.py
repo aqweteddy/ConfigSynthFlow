@@ -94,6 +94,14 @@ class AsyncOpenAIChat(AsyncBasePipeline):
                 return {}
 
 
+class AsyncOpenAICompletion(AsyncOpenAIChat):
+    async def run_each(self, dct: dict) -> dict:
+        resp = await self.openai_client.completions.create(
+            prompt=dct[self.messages_col][-1]['content'], **self.gen_kwargs
+        )
+        dct[self.output_col] = resp.choices[0].text
+        return dct
+
 class BatchOpenAIChat(AsyncOpenAIChat):
     def __post_init__(
         self,

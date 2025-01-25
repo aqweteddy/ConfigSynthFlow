@@ -1,6 +1,7 @@
 from semantic_text_splitter import TextSplitter
 from tokenizers import Tokenizer
 from ...base import BasePipeline
+from concurrent.futures import ProcessPoolExecutor
 
 
 class TextChunker(BasePipeline):

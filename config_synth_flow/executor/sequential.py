@@ -2,7 +2,6 @@ from ..base import BasePipeline, DictsGenerator
 from ..reader import BaseReader
 from datasets import Dataset
 from pathlib import Path
-from tqdm import tqdm
 
 
 class SequentialExecutor(BasePipeline):
@@ -27,7 +26,7 @@ class SequentialExecutor(BasePipeline):
         self.reader = reader
         self.pipes = pipes or []
         self.chunk_size = chunk_size
-        self.output_path = Path(output_path)
+        self.output_path = Path(output_path) if output_path else None
         self.resume = resume
         self.cnt = 0
         
@@ -51,7 +50,9 @@ class SequentialExecutor(BasePipeline):
             chunk_size (int, optional): Chunk size to split the dataset. Defaults to None.
         """
         chunk_size = chunk_size or self.chunk_size
-        self.config.save(self.output_path / "config.yml")
+        if self.output_path:
+            self.config.save(self.output_path / "config.yml")
+        
         if self.resume:
             self.reader.set_done_ids(self.output_path)
 
@@ -64,12 +65,17 @@ class SequentialExecutor(BasePipeline):
                 self.logger.info(f"Processing chunk {chunk_id}")
                 result_ds = self(dcts)
                 dcts = []
-                self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
+                if len(result_ds) == 0:
+                    self.logger.info("No valid samples in this chunk")
+                    continue
+                if self.output_path:
+                    self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
                 chunk_id += 1
 
         if len(dcts) > 0:
             result_ds = self(dcts)
-            self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
+            if self.output_path:
+                self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
 
         self.logger.info("All Done!")
 
@@ -80,6 +86,8 @@ class SequentialExecutor(BasePipeline):
         Args:
             result_ds (Dataset): Processed dataset.
         """
+        if not self.output_path:
+            return
         self.logger.info(f"Writing to {output_path}")
         result_ds.to_json(
             output_path,

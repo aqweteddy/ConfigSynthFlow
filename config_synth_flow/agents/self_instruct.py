@@ -34,5 +34,5 @@ class DocSelfInstructAgent(BaseAgent):
         resp: QueryResponseItem = await self.chat(messages)
         return [
             {"role": "user", "content": resp.query},
-            {"role": "system", "content": resp.response},
+            {"role": "assistant", "content": resp.response},
         ]

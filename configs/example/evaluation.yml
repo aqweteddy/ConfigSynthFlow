@@ -1,0 +1,64 @@
+import_path: config_synth_flow.executor.SequentialExecutor
+init_kwargs:
+  reader:
+    import_path: config_synth_flow.reader.HfDatasetReader
+    init_kwargs:
+      debug: false
+      dataset_kwargs:
+        path: aqweteddy/Taiwan-Curlture-MCQ
+  output_path: result/eval/tw-culture-mcq_llama-3.2-1B_cp-stage1-v0.3/
+  resume: false
+  pipes:
+    - import_path: config_synth_flow.pipelines.OpenaiTemplateMapper
+      init_kwargs:
+        jinja_template: |
+          問題:
+          有鑑於臺灣發展養殖漁業時常造成地層下陷的環境問題，政府推廣何種漁業方式以期能夠緩和這項問題？
+          A. 遠洋漁業
+          B. 近海漁業
+          C. 箱網養殖漁業
+          D. 漁塭養殖漁業
+          答案:
+          C
+
+          問題:
+          {{ question }}
+          A. {{ A }}
+          B. {{ B }}
+          C. {{ C }}
+          D. {{ D }}
+          答案:
+    - import_path: config_synth_flow.pipelines.AsyncOpenAICompletion
+      async_concurrency: 1000
+      init_kwargs:
+        output_col: pred
+        model: default
+        openai_kwargs:
+          base_url: http://localhost:30001/v1
+        gen_kwargs:
+          extra_body: {"regex": "(A|B|C|D)"}
+          temperature: 0.0
+          # response_format:
+          #   type: json_schema
+          #   json_schema:
+          #     name: ChatResponse
+          #     description: chat response
+          #     strict: true
+          #     schema:
+          #       type: object
+          #       properties:
+          #         reason:
+          #           type: string
+          #         answer:
+          #           type: string
+          #           enum: [A, B, C, D]
+          #       additionalProperties: false
+          #       required: [reason, answer]
+          #       strict: true
+    - import_path: config_synth_flow.pipelines.AccuracyMetric
+      init_kwargs:
+        pred_lambda_col: "lambda x: x['pred']"
+        ground_lambda_col: "lambda x: x['answer']"
+        group_by_col: src
+    - import_path: config_synth_flow.pipelines.RemoveColumns
+      init_kwargs: {}
