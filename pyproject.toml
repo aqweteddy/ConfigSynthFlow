@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "config_synth_flow"
 version = "0.1.0"
-description = ""
+description = "Configurable workflows for synthetic data generation"
 authors = ["aqweteddy"]
 license = "MIT"
 readme = "README.md"
