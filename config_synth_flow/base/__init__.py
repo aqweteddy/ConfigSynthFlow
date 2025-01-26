@@ -8,7 +8,8 @@ from logging import getLogger, Formatter, StreamHandler
 import logging
 import asyncio
 from tqdm.asyncio import tqdm as atqdm
-
+from itertools import islice
+import pickle
 
 DictsGenerator = Union[list[dict[str, Any]], Generator[dict[str, Any], None, None]]
 
@@ -74,8 +75,12 @@ class PipelineConfig(BaseModel):
         ]
         | None
     ) = None
-    async_concurrency: int = 100
     cfg_path: str | None = None
+
+    # async only
+    async_concurrency: int | None = None
+    async_batch_size: int | None = None
+
     __original_kwargs: dict[str, Any]
 
     def model_post_init(self, _):
@@ -102,6 +107,7 @@ class PipelineConfig(BaseModel):
         return self
 
     def save(self, path: Path) -> None:
+        dct = {}
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(self.__original_kwargs, f, allow_unicode=True)
@@ -175,7 +181,22 @@ def check_required_packages(packages: list[str]) -> None:
         raise ImportError(f"Missing required packages: {missing_packages}.")
 
 
-class BasePipeline(ABC):
+class Serializable:
+    def serialize(self):
+        return pickle.dumps(self)
+
+    @classmethod
+    def deserialize(cls, data):
+        return pickle.loads(data)
+
+    def __getstate__(self):
+        return self.__dict__
+    
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+
+class BasePipeline(Serializable):
     class_name: str
     config: PipelineConfig
     required_packages: list[str]
@@ -238,7 +259,6 @@ class BasePipeline(ABC):
         Returns:
             DictsGenerator: Generator of output samples.
         """
-
         for dct in dcts:
             result = self.run_each(dct)
             if result:
@@ -308,6 +328,8 @@ class BasePipeline(ABC):
 class AsyncBasePipeline(BasePipeline):
     def __init__(self, config: PipelineConfig):
         super().__init__(config)
+        config.async_batch_size = config.async_batch_size or 1000
+        config.async_concurrency = config.async_concurrency or 100
 
     @property
     def semaphore(self):
@@ -327,21 +349,25 @@ class AsyncBasePipeline(BasePipeline):
 
     async def _async_call(self, dcts: list[dict]) -> list[dict]:
         sem = asyncio.Semaphore(self.config.async_concurrency)
+
         async def limit_concurrency(sem, coro):
             async with sem:
                 return await coro
+
         tasks = []
         for dct in dcts:
             tasks.append(limit_concurrency(sem, self.run_each(dct)))
-        
-        return await atqdm.gather(
-                *tasks, 
-                desc=self.class_name
-        )
+
+        return await atqdm.gather(*tasks, desc=self.class_name)
+
+    def get_chunk(self, dcts: DictsGenerator, chunk_size: int) -> DictsGenerator:
+        it = iter(dcts)
+        while chunk := list(islice(it, chunk_size)):
+            yield list(chunk)
 
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
         """
-        Run the pipeline on a generator of input samples.
+        Yield the output of the pipeline in chunks.
 
         Args:
             dcts (DictsGenerator): Input samples.
@@ -349,8 +375,5 @@ class AsyncBasePipeline(BasePipeline):
             DictsGenerator: Generator of output samples.
         """
 
-        for dct in asyncio.run(self._async_call(list(dcts))):
-            if isinstance(dct, dict):
-                yield dct
-            else:
-                yield from dct
+        for chunk in self.get_chunk(dcts, self.config.async_batch_size):
+            yield from asyncio.run(self._async_call(chunk))

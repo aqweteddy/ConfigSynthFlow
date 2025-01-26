@@ -1,8 +1,6 @@
-from ...base import BasePipeline, DictsGenerator, AsyncBasePipeline
-import requests
-import asyncio
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from aiohttp import ClientSession
+
+from ...base import AsyncBasePipeline
 
 
 class InfinityApiReranker(AsyncBasePipeline):
@@ -93,7 +91,7 @@ class InfinityApiReranker(AsyncBasePipeline):
         return dct
 
 
-class InfinityApiEmbedder(BasePipeline):
+class InfinityApiEmbedder(AsyncBasePipeline):
     def __post_init__(
         self,
         api_base: str,
@@ -101,7 +99,6 @@ class InfinityApiEmbedder(BasePipeline):
         batch_size: int = 32,
         query_lambda_col: str = 'lambda x: x["query"]',
         output_col: str = "_embeddings",
-        num_concurrent: int = 4,
     ):
         """Pipeline to get embeddings from Infinity API.
 
@@ -117,7 +114,6 @@ class InfinityApiEmbedder(BasePipeline):
         self.query_lambda_col = eval(query_lambda_col)
         self.batch_size = batch_size
         self.output_col = output_col
-        self.num_concurrent = num_concurrent
 
         if not self.host.startswith("http"):
             self.host = "http://" + self.host
@@ -125,55 +121,22 @@ class InfinityApiEmbedder(BasePipeline):
         if not self.host.endswith("/embeddings"):
             self.host += "/embeddings"
 
-    def _post(self, query: list[str]) -> list[float]:
+    async def apost(self, query: list[str]) -> list[float]:
+        if len(query) == 0:
+            return []
         params = {
             "input": query,
             "model": self.model_name,
         }
 
-        res = requests.post(
-            self.host,
-            json=params,
-            timeout=20,
-        ).json()["data"]
+        async with ClientSession() as session:
+            async with session.post(self.host, json=params) as response:
+                res = await response.json()
+                res = sorted(res, key=lambda x: x["index"])
+        return [r["embedding"] for r in res]
 
-        res = sorted(res, key=lambda x: x["index"])
-        res = [r["embedding"] for r in res]
-
-        return res
-
-    def get_embeddings(self, query_list: list[str]) -> list[list[float]]:
-        if self.num_concurrent == 1:
-            return self._post(query_list)
-
-        threads = []
-
-        with ThreadPoolExecutor(max_workers=self.num_concurrent) as executor:
-            small_batch_size = self.batch_size // self.num_concurrent + 1
-            for i in range(0, len(query_list), small_batch_size):
-                batch = query_list[i : i + small_batch_size]
-                threads.append(executor.submit(self._post, batch))
-
-            res = []
-            for thread in threads:
-                res.extend(thread.result())
-
-        return res
-
-    def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
-        batch_dcts = []
-
-        for dct in dcts:
-            batch_dcts.append(dct)
-            if len(batch_dcts) == self.batch_size:
-                queries = [self.query_lambda_col(d) for d in batch_dcts]
-                embeddings = self.get_embeddings(queries)
-                for dct, emb in zip(batch_dcts, embeddings):
-                    dct[self.output_col] = emb
-                    yield dct
-                batch_dcts = []
-
-        embeddings = self.get_embeddings([self.query_lambda_col(d) for d in batch_dcts])
-        for dct, emb in zip(batch_dcts, embeddings):
-            dct[self.output_col] = emb
-            yield dct
+    async def run_each(self, dct: dict) -> dict:
+        query = self.query_lambda_col(dct)
+        embeddings = await self.apost(query)
+        dct[self.output_col] = embeddings
+        return dct

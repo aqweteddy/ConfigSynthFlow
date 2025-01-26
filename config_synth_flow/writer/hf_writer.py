@@ -1,0 +1,60 @@
+from .base import BaseWriter
+from ..base import DictsGenerator
+from typing import Literal
+from datasets import Dataset
+
+
+class HfWriter(BaseWriter):
+    def __post_init__(
+        self,
+        output_path: str,
+        chunk_size: int = 1000,
+        output_format: Literal["jsonl", "json", "csv", "parquet"] = "jsonl",
+    ):
+        super().__post_init__(output_path=output_path)
+        self.output_format = output_format
+        self.chunk_size = chunk_size
+        self.chunk_id = 0
+
+    def save_hf_dataset(self, dcts: list[dict]) -> None:
+        ds = Dataset.from_list(dcts)
+        while True:
+            output_path = self.output_path / f"chunk_{self.chunk_id:05d}.{self.output_format}"
+            self.chunk_id += 1
+            if not output_path.exists():
+                break
+        
+        if self.output_format == "jsonl":
+            ds.to_json(
+                output_path, force_ascii=False
+            )
+        elif self.output_format == "json":
+            ds.to_json(
+                output_path, force_ascii=False
+            )
+        elif self.output_format == "csv":
+            ds.to_csv(output_path)
+        elif self.output_format == "parquet":
+            ds.to_parquet(output_path)
+        else:
+            raise ValueError(f"Unsupported output format: {self.output_format}")
+        ds.cleanup_cache_files()
+
+    def __call__(self, dataset: DictsGenerator) -> None:
+        """
+        Write the dataset to the output path.
+
+        Args:
+            dataset (DictsGenerator): Dataset to write.
+        """
+        output_list = []
+
+        for dct in dataset:
+            output_list.append(dct)
+            if len(output_list) == self.chunk_size:
+                self.save_hf_dataset(output_list)
+                self.chunk_id += 1
+                output_list = []
+
+        if len(output_list) > 0:
+            self.save_hf_dataset(output_list)

@@ -19,6 +19,5 @@ class MultiTurnGenerationAgent(BaseAgent):
         messages: list[dict] =copy.deepcopy(dct[self.messages_col])
         for _ in range(self.num_extended_turns):
             output = await self.qa_refinement_agent.run_agent(messages, dct)
-            print(output)
             messages.extend(output["messages"])
         return messages

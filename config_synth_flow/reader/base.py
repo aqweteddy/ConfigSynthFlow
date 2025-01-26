@@ -1,8 +1,7 @@
-from typing import Any
 from hashlib import md5
-from datasets import load_dataset
+from pathlib import Path
+
 from ..base import BasePipeline, DictsGenerator
-from glob import glob
 
 
 class BaseReader(BasePipeline):
@@ -11,12 +10,18 @@ class BaseReader(BasePipeline):
     Read the dataset and generate the dict[str, Any] for the pipeline.
     override the `read` method to read the dataset. You can also override the `get_unique_id` method to generate the unique id for each sample.
     Notice that __call__ method is implemented to generate the unique id for each sample.
-    
+
     property:
     - resume: bool: Resume the previous run. Default to False. When True, it will load the processed dataset and skip the processed samples.
+    - writer_output_path: Path: Output path of the writer. This is used to check the processed dataset.
     """
-    
+
     resume: bool = False
+    writer_output_path: Path = None
+    
+    def __post_init__(self, resume: bool = False):
+        self.resume = resume
+        self._tmp_save_processed_ids = []
 
     def __call__(self) -> DictsGenerator:
         """
@@ -24,15 +29,23 @@ class BaseReader(BasePipeline):
         """
         skipped_cnt = 0
         for dct in self.read():
-            dct['hash_id'] = self.get_unique_id(dct)
-            if self.resume and dct['hash_id'] in self.unique_id_set:
+            id = self.get_unique_id(dct)
+            dct["hash_id"] = id
+
+            if self.resume and id in self.unique_id_set:
                 skipped_cnt += 1
-                if skipped_cnt % 1000 == 0:
-                    self.logger.info(f"Skip {skipped_cnt} samples")
-                continue
-        
-            yield dct
-        
+            else:
+                self.add_id(id)
+                yield dct
+
+    def add_id(self, id: str) -> None:
+        self.unique_id_set.add(id)
+        self._tmp_save_processed_ids.append(id)
+        if len(self.unique_id_set) % 100 == 0:
+            with open(self.writer_output_path / "processed_ids.txt", "a") as f:
+                f.write("\n".join(self._tmp_save_processed_ids) + "\n")
+            self._tmp_save_processed_ids = []
+
     def read(self) -> DictsGenerator:
         """
         Implement the read method to read the dataset.
@@ -40,22 +53,39 @@ class BaseReader(BasePipeline):
         ...
 
     @staticmethod
-    def get_unique_id(obj: Any) -> str:
-        return md5(str(obj).encode()).hexdigest()
+    def get_unique_id(obj: dict) -> str:
+        items = sorted(obj.items(), key=lambda x: x[0])
+        return md5(str(items).encode()).hexdigest()
 
-    def set_done_ids(self, output_path: str, num_proc: int = 4) -> None:
+    def set_writer_output_path(self, output_path: str | Path | None) -> None:
         """
-        Set the done ids from the processed dataset.
-        
+        Set the output path of the writer. This is used to check the processed dataset.
+
         Args:
-            output_path (str): Output path to save the processed dataset.
-            num_proc (int, optional): Number of processes to load the dataset. Defaults to 4.
-        
+            output_path (str): Output path of the writer.
         """
-        done_files = glob(f"{output_path}/*.jsonl")
-        if len(done_files) == 0:
-            return
-        ds = load_dataset("json", data_files=done_files, num_proc=4)["train"]
-        self.unique_id_set = set(ds["hash_id"])
-        self.resume = True
-        ds.cleanup_cache_files()
+
+        output_path = output_path or "./.tmp/"
+
+        if isinstance(output_path, str):
+            output_path = Path(output_path)
+        
+        self.writer_output_path = output_path
+        if self.resume and (output_path / "processed_ids.txt").exists():
+            with open(output_path / "processed_ids.txt", "r") as f:
+                self.unique_id_set = set(f.read().split("\n"))
+                self.logger.info(f'already processed {len(self.unique_id_set)} samples.')
+        else:
+            self.unique_id_set = set()
+
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        if not self.resume:
+            text_id_fp = open(output_path / "processed_ids.txt", "w")
+            text_id_fp.close()
+    
+    def __del__(self):
+        if len(self._tmp_save_processed_ids) > 0:
+            with open(self.writer_output_path / "processed_ids.txt", "a") as f:
+                f.write("\n".join(self._tmp_save_processed_ids) + "\n")
+            self._tmp_save_processed_ids = []

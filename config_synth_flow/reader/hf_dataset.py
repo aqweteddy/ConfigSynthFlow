@@ -5,13 +5,16 @@ from .base import BaseReader
 
 class HfDatasetReader(BaseReader):
     required_packages: list = ["datasets"]
-    def __post_init__(self, dataset_kwargs: dict, debug: bool = False):
+
+    def __post_init__(self, resume: bool, dataset_kwargs: dict, debug: bool = False):
         """
         Read the dataset from the given kwargs.
-        
+
         Args:
             dataset_kwargs (dict): Dataset kwargs to load the dataset. refer to `datasets.load_dataset` for more details.
         """
+        super().__post_init__(resume=resume)
+
         self.dataset_kwargs = dataset_kwargs
         self.ds = self.load_dataset(dataset_kwargs)
         self.num_proc = self.dataset_kwargs.get("num_proc", 4)
@@ -22,7 +25,7 @@ class HfDatasetReader(BaseReader):
                 self.ds = self.ds.take(num)
             else:
                 self.ds = self.ds.select(range(num))
-    
+
     def load_dataset(self, dataset_kwargs: dict) -> Dataset:
         ds = load_dataset(**dataset_kwargs)
         if not isinstance(ds, Dataset):
@@ -36,7 +39,7 @@ class HfDatasetReader(BaseReader):
             self.logger.info("Numbers of samples: Unknown")
 
         return ds
-    
+
     def read(self) -> DictsGenerator:
         cnt = 0
         for dct in self.ds:

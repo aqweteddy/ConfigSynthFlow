@@ -17,16 +17,21 @@ class OpenaiTemplateMapper(BasePipeline):
         system_prompt: str = None,
         output_col: str = "_prompt",
     ):
-        self.template = Template(jinja_template)
+        self._template = jinja_template
         self.output_col = output_col
         self.system_prompt = system_prompt
+    
+    @property
+    def template(self):
+        if isinstance(self._template, str):
+            self._template = Template(self._template)
+        return self._template
 
     def run_each(self, dct: dict) -> dict:
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
-
-        prompt = self.template.render(dct)
+        prompt = self.template.render(**dct)
         messages.append({"role": "user", "content": prompt})
         dct[self.output_col] = messages
         return dct

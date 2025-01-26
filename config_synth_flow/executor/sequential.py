@@ -1,100 +1,76 @@
-from ..base import BasePipeline, DictsGenerator
-from ..reader import BaseReader
-from datasets import Dataset
-from pathlib import Path
+import itertools
+from concurrent.futures import ProcessPoolExecutor
+
+from config_synth_flow.base import BasePipeline, DictsGenerator, PipelineConfig
+from config_synth_flow.reader import BaseReader
+from config_synth_flow.writer import BaseWriter
+
+from .base import BaseExecutor
 
 
-class SequentialExecutor(BasePipeline):
+class SequentialExecutor(BaseExecutor):
     def __post_init__(
         self,
         reader: BaseReader,
-        output_path: str = None,
-        chunk_size: int = 1000,
-        resume: bool = False,
+        writer: BaseWriter = None,
         pipes: list[BasePipeline] = None,
     ):
-        """
-        Sequentially run pipelines on the dataset.
-
-        Args:
-            dataset_kwargs (dict): Dataset kwargs to load the dataset. refer to `datasets.load_dataset` for more details.
-            output_path (str, optional): Output path to save the processed dataset. Defaults to None.
-            chunk_size (int, optional): Chunk size to split the dataset. Defaults to 1000.
-            resume (bool, optional): Resume the previous run. Defaults to False.
-            pipes (list[BasePipeline], optional): List of pipelines to run sequentially.
-        """
-        self.reader = reader
+        super().__post_init__(reader=reader, writer=writer)
         self.pipes = pipes or []
-        self.chunk_size = chunk_size
-        self.output_path = Path(output_path) if output_path else None
-        self.resume = resume
-        self.cnt = 0
-        
-        self.logger.info(f"Pipeline overview:\n{self}")
+        if self.writer is not None:
+            pipes.append(self.writer)
 
-    def get_start_id(
-        self,
-    ) -> int:
-        if self.resume:
-            done_files = list(self.output_path.glob("*.jsonl"))
-            if len(done_files) == 0:
-                return 0
-            return max([int(f.stem.split("_")[-1]) for f in done_files]) + 1
-        return 0
-
-    def chunked_run(self, chunk_size: int = None) -> None:
-        """
-        Chunked the dataset and run the pipelines sequentially.
-
-        Args:
-            chunk_size (int, optional): Chunk size to split the dataset. Defaults to None.
-        """
-        chunk_size = chunk_size or self.chunk_size
-        if self.output_path:
-            self.config.save(self.output_path / "config.yml")
-        
-        if self.resume:
-            self.reader.set_done_ids(self.output_path)
-
-        dcts = []
-        chunk_id = self.get_start_id()
-
-        for dct in self.reader():
-            dcts.append(dct)
-            if len(dcts) == chunk_size:
-                self.logger.info(f"Processing chunk {chunk_id}")
-                result_ds = self(dcts)
-                dcts = []
-                if len(result_ds) == 0:
-                    self.logger.info("No valid samples in this chunk")
-                    continue
-                if self.output_path:
-                    self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
-                chunk_id += 1
-
-        if len(dcts) > 0:
-            result_ds = self(dcts)
-            if self.output_path:
-                self.write_output(result_ds, self.output_path / f"{chunk_id:05d}.jsonl")
-
-        self.logger.info("All Done!")
-
-    def write_output(self, result_ds: Dataset, output_path: str) -> None:
-        """
-        Write the processed dataset to the output path.
-
-        Args:
-            result_ds (Dataset): Processed dataset.
-        """
-        if not self.output_path:
-            return
-        self.logger.info(f"Writing to {output_path}")
-        result_ds.to_json(
-            output_path,
-            force_ascii=False,
-        )
-
-    def __call__(self, dcts: DictsGenerator) -> Dataset:
+    def execute(self) -> None:
+        dcts = self.reader()
         for pipe in self.pipes:
-            dcts = pipe(dcts)        
-        return Dataset.from_list(list(dcts))
+            dcts = pipe(dcts)
+
+
+class PipelineRunner(BasePipeline):
+    def __init__(self, pipe_cfg_list: list[PipelineConfig]):
+        self.pipes = [
+            BasePipeline.from_config(pipe_cfg)
+            for pipe_cfg in pipe_cfg_list
+        ]
+    
+    def __call__(self, dataset: DictsGenerator) -> DictsGenerator:
+        for pipe in self.pipes:
+            dataset = pipe(dataset)
+        
+        return list(dataset)
+
+
+class MultiProcessSequentialExecutor(BaseExecutor):
+    def __post_init__(
+        self,
+        reader: BaseReader,
+        writer: BaseWriter = None,
+        pipes: list[BasePipeline] = None,
+        num_proc: int = 4,
+        chunk_size: int = 8,
+    ):
+        super().__post_init__(reader=reader, writer=writer)
+        self.pipes = pipes or []
+        self.num_proc = num_proc
+        self.chunk_size = chunk_size
+        if self.writer is not None:
+            pipes = pipes[:-1]
+
+    def yield_dcts_chunk(self, dcts: DictsGenerator, chunk_size: int):
+        it = iter(dcts)
+        while chunk := list(itertools.islice(it, chunk_size)):
+            yield list(chunk)
+    
+    def execute(self) -> None:
+        dcts = self.reader()
+        pipe_runner = PipelineRunner(
+            pipe_cfg_list=[
+                pipe.config
+                for pipe in self.pipes
+            ]
+        )
+        with ProcessPoolExecutor(max_workers=self.num_proc) as executor:
+            res_list  = list(executor.map(pipe_runner, self.yield_dcts_chunk(dcts, self.chunk_size)))
+        
+        for res in res_list:
+            self.writer(res)

@@ -9,5 +9,5 @@ def main():
     args = parser.parse_args()
     
     executor: SequentialExecutor = SequentialExecutor.from_yaml(args.cfg_path)
-    executor.chunked_run()
+    executor.execute()
     
