@@ -3,7 +3,7 @@ Configurable workflows for synthetic data generation.
 
 <!-- Icon -->
 <p align="center">
-  <img src="iamges/icon.webp" width="200" />
+  <img src="iamges/icon.png" width="200" />
 </p>
 
 
