@@ -4,14 +4,28 @@ from ..writer import BaseWriter
 
 
 class BaseExecutor(BasePipeline):
-    
+
     def __init__(self, config: PipelineConfig):
+        """Initializes the BaseExecutor.
+
+        Args:
+            config (PipelineConfig): The pipeline configuration.
+        """
         super().__init__(config)
         self.reader.set_writer_output_path(self.writer.output_path)
-        
-    def __post_init__(self, 
-                      reader: BaseReader,
-                      writer: BaseWriter,
+
+    def post_init(
+        self,
+        reader: BaseReader,
+        writer: BaseWriter,
     ):
+        """Post-initializes the BaseExecutor. Call by __init__ of child classes.
+        In this method, you can set your custom `init_kwargs` for the executor.
+        For Executor, it should at least set the reader and writer instances.
+
+        Args:
+            reader (BaseReader): The reader instance.
+            writer (BaseWriter): The writer instance.
+        """
         self.reader = reader
         self.writer = writer

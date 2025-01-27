@@ -1,4 +1,13 @@
 from .magpie import MagpieBasedOnTextAgent
-from .self_instruct import DocSelfInstructAgent
-from .QA_refinement import QARefinementAgent, ValidAgent, EditAgent
 from .multiturn_qa import MultiTurnGenerationAgent
+from .QA_refinement import EditAgent, QARefinementAgent, ValidAgent
+from .self_instruct import DocSelfInstructAgent
+
+__all__ = [
+    "MagpieBasedOnTextAgent",
+    "DocSelfInstructAgent",
+    "QARefinementAgent",
+    "ValidAgent",
+    "EditAgent",
+    "MultiTurnGenerationAgent",
+]

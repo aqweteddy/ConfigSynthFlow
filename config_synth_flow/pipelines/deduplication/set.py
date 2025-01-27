@@ -1,18 +1,41 @@
+"""
+This module provides a deduplication pipeline using exact text matching.
+"""
+
 from ...base import BasePipeline, DictsGenerator
 
 
 class SetExactMatch(BasePipeline):
-    def __post_init__(self, text_col: str = 'text'):
+    """
+    A pipeline for deduplicating documents based on exact text matches.
+
+    Attributes:
+        text_col (str): The name of the text column to be used for deduplication.
+    """
+
+    def post_init(self, text_col: str = "text"):
+        """
+        Initializes the pipeline with the specified text column.
+
+        Args:
+            text_col (str): The name of the text column to be used for deduplication.
+        """
         self.text_col = text_col
-        
+
     def __call__(self, dcts: DictsGenerator):
+        """
+        Deduplicates the input documents based on exact text matches.
+
+        Args:
+            dcts (DictsGenerator): A generator of dictionaries representing documents.
+
+        Yields:
+            dict: A dictionary representing a unique document.
+        """
         used = set()
-        
+
         for dct in dcts:
             text = dct[self.text_col]
             if text not in used:
                 yield dct
                 used.add(text)
-lambda x: {
-        "text": f"""- 主題: {x['_topic']}\n- 主要實體: {x['_ent_str']}\n- 關鍵字: {x['_kwd_str']}\n\n{x['text'][:10000]}"""
-    }

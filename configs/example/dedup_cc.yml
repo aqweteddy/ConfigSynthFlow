@@ -1,0 +1,24 @@
+import_path: config_synth_flow.executor.SequentialExecutor
+init_kwargs:
+  reader:
+    import_path: config_synth_flow.reader.HfDatasetReader
+    init_kwargs:
+      debug: false
+      dataset_kwargs:
+        path: json
+        data_files:
+          - data/test.jsonl
+        num_proc: 32
+  writer:
+    import_path: config_synth_flow.writer.HfWriter
+    init_kwargs:
+      output_path:  result/test_dedup.jsonl
+      chunk_size: 100000
+      output_format: jsonl
+  pipes:
+    - import_path: config_synth_flow.pipelines.MinHashDeduplication
+      init_kwargs: 
+        dedup_level: sentence
+        text_col: text
+        threshold: 0.85
+        num_proc: 32

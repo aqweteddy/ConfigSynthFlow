@@ -1,17 +1,17 @@
-from ...base import BasePipeline, DictsGenerator
-from rensa import RMinHash
-from typing import Literal
-from tokenizers import Tokenizer
-import re
 import os
-from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
-
+import re
 from collections import defaultdict
-from typing import List
+from concurrent.futures import ProcessPoolExecutor
+from typing import Literal
 
+from rensa import RMinHash
+from tokenizers import Tokenizer
+from tqdm import tqdm
+
+from ...base import BasePipeline, DictsGenerator
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 class LSH:
 
@@ -22,7 +22,7 @@ class LSH:
         self.band_size = num_perm // num_bands
         self.hash_tables = [defaultdict(list) for _ in range(num_bands)]
 
-    def _hash_band(self, band: List[int]) -> int:
+    def _hash_band(self, band: list[int]) -> int:
         return hash(tuple(band))
 
     def insert(self, key: int, digest) -> None:
@@ -32,7 +32,7 @@ class LSH:
             band_hash = self._hash_band(digest[start:end])
             self.hash_tables[i][band_hash].append(key)
 
-    def query(self, digest) -> List[int]:
+    def query(self, digest) -> list[int]:
         candidates = set()
         for i in range(self.num_bands):
             start = i * self.band_size
@@ -76,7 +76,7 @@ def get_dedup_index(
 class MinHashDeduplication(BasePipeline):
     required_packages = ["rensa", "tokenizers"]
 
-    def __post_init__(
+    def post_init(
         self,
         num_perm: int = 64,
         text_col: str = "text",
@@ -105,18 +105,32 @@ class MinHashDeduplication(BasePipeline):
         self.token_col = token_col
         self.dedup_level = dedup_level
         self.threshold = threshold
-        self.sent_split_regex = sentence_split_regex
+        self.sent_split_regex = re.compile(
+            sentence_split_regex, flags=re.UNICODE | re.MULTILINE
+        )
         try:
             self.tokenizer = Tokenizer.from_pretrained(tokenizer_name)
-        except:
+        except Exception as e:
+            self.logger.info(
+                f"Failed to load tokenizer from file: {e}, trying to load from hugginface."
+            )
             self.tokenizer = Tokenizer.from_file(tokenizer_name)
         self.num_proc = num_proc
-    
-    def tokenize(self, text: str) -> List[str]:
+
+    def tokenize(self, text: str) -> list[str]:
         return self.tokenizer.encode(text).tokens
 
+    def sentence_split(self, text: str) -> list[str]:
+        sentences = self.sent_split_regex.split(text)
+        result = []
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) > 10:
+                result.append(sentence)
+        return result
+
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
-        dcts = list(dcts)
+        dcts = list(tqdm(dcts, desc="Initiating Deduplication"))
         text_list = [dct[self.text_col] for dct in dcts]
 
         if self.token_col not in dcts[0]:
@@ -130,9 +144,12 @@ class MinHashDeduplication(BasePipeline):
                         )
                     )
             elif self.dedup_level == "sentence":
-                self.logger.info(f"Splitting text into sentences using regex: {self.sent_split_regex}")
+                self.logger.info(
+                    f"Splitting text into sentences using regex: {self.sent_split_regex}"
+                )
                 tokens_list = [
-                    [t for t in re.split(self.sent_split_regex, text) if len(t.strip()) > 10] for text in tqdm(text_list, desc="Splitting")
+                    self.sentence_split(text)
+                    for text in tqdm(text_list, desc="Splitting")
                 ]
         else:
             tokens_list = [dct[self.token_col] for dct in dcts]

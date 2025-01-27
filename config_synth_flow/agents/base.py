@@ -1,12 +1,14 @@
-from ..pipelines.api import AsyncOpenAIChat
-from openai.types.chat import ChatCompletion
 from typing import Any
+
+from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
+
+from ..pipelines.api import AsyncOpenAIChat
 
 
 class BaseAgent(AsyncOpenAIChat):
     async def chat(self, messages: list[dict[str, str]]) -> str | BaseModel:
-        if 'response_format' in self.gen_kwargs and issubclass(
+        if "response_format" in self.gen_kwargs and issubclass(
             self.gen_kwargs["response_format"], BaseModel
         ):
             res: ChatCompletion = await self.openai_client.beta.chat.completions.parse(

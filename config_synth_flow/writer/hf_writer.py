@@ -1,37 +1,51 @@
-from .base import BaseWriter
-from ..base import DictsGenerator
 from typing import Literal
+
 from datasets import Dataset
+
+from ..base import DictsGenerator
+from .base import BaseWriter
 
 
 class HfWriter(BaseWriter):
-    def __post_init__(
+    def post_init(
         self,
         output_path: str,
         chunk_size: int = 1000,
         output_format: Literal["jsonl", "json", "csv", "parquet"] = "jsonl",
     ):
-        super().__post_init__(output_path=output_path)
+        """
+        Initialize the HfWriter.
+
+        Args:
+            output_path (str): Path to the output directory.
+            chunk_size (int): Number of records per chunk. Defaults to 1000.
+            output_format (Literal["jsonl", "json", "csv", "parquet"]): Output format. Defaults to "jsonl".
+        """
+        super().post_init(output_path=output_path)
         self.output_format = output_format
         self.chunk_size = chunk_size
         self.chunk_id = 0
 
     def save_hf_dataset(self, dcts: list[dict]) -> None:
+        """
+        Save a list of dictionaries as a Hugging Face dataset.
+
+        Args:
+            dcts (list[dict]): List of dictionaries to save.
+        """
         ds = Dataset.from_list(dcts)
         while True:
-            output_path = self.output_path / f"chunk_{self.chunk_id:05d}.{self.output_format}"
+            output_path = (
+                self.output_path / f"chunk_{self.chunk_id:05d}.{self.output_format}"
+            )
             self.chunk_id += 1
             if not output_path.exists():
                 break
-        
+
         if self.output_format == "jsonl":
-            ds.to_json(
-                output_path, force_ascii=False
-            )
+            ds.to_json(output_path, force_ascii=False)
         elif self.output_format == "json":
-            ds.to_json(
-                output_path, force_ascii=False
-            )
+            ds.to_json(output_path, force_ascii=False)
         elif self.output_format == "csv":
             ds.to_csv(output_path)
         elif self.output_format == "parquet":
@@ -42,7 +56,7 @@ class HfWriter(BaseWriter):
 
     def __call__(self, dataset: DictsGenerator) -> None:
         """
-        Write the dataset to the output path.
+        Write the result to the output path.
 
         Args:
             dataset (DictsGenerator): Dataset to write.

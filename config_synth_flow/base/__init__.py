@@ -1,17 +1,21 @@
-import yaml
-from pathlib import Path
-from pydantic import BaseModel
-from typing import Any, Generator, ForwardRef, Union, Callable
-from importlib import import_module, util
-from abc import ABC
-from logging import getLogger, Formatter, StreamHandler
-import logging
 import asyncio
-from tqdm.asyncio import tqdm as atqdm
-from itertools import islice
+import logging
 import pickle
+from collections.abc import Generator
+from importlib import import_module, util
+from itertools import islice
+from logging import Formatter, StreamHandler, getLogger
+from pathlib import Path
+from typing import Any, Callable, ForwardRef, Union
+
+import yaml
+from pydantic import BaseModel
+from tqdm.asyncio import tqdm as atqdm
 
 DictsGenerator = Union[list[dict[str, Any]], Generator[dict[str, Any], None, None]]
+"""
+Data type for each pipeline input/output. It can be a list of dictionaries or a generator of dictionaries.
+"""
 
 PipelineConfig = ForwardRef("PipelineConfig")
 
@@ -84,6 +88,12 @@ class PipelineConfig(BaseModel):
     __original_kwargs: dict[str, Any]
 
     def model_post_init(self, _):
+        """
+        Post initialization method for the model.
+
+        Args:
+            _ (Any): Placeholder argument.
+        """
         self.__original_kwargs = self.model_dump()
         if (
             self.import_path is None
@@ -107,7 +117,12 @@ class PipelineConfig(BaseModel):
         return self
 
     def save(self, path: Path) -> None:
-        dct = {}
+        """
+        Save the pipeline configuration to a file.
+
+        Args:
+            path (Path): Path to the file where the configuration will be saved.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(self.__original_kwargs, f, allow_unicode=True)
@@ -152,7 +167,13 @@ def wrap_lambda(lambda_func: callable, *args, **kwargs) -> Callable:
 
 def _get_class(config: PipelineConfig):
     """
-    get and instantiate a pipeline class according to the config.import_path or config.lambda_func
+    Get and instantiate a pipeline class according to the config.import_path or config.lambda_func.
+
+    Args:
+        config (PipelineConfig): Pipeline configuration.
+
+    Returns:
+        Any: Instantiated pipeline class or wrapped lambda function.
     """
     if config.import_path:
         module_, func = config.import_path.rsplit(".", maxsplit=1)
@@ -174,6 +195,9 @@ def check_required_packages(packages: list[str]) -> None:
 
     Args:
         packages (list[str]): List of required packages.
+
+    Raises:
+        ImportError: If any of the required packages are missing.
     """
 
     missing_packages = [pkg for pkg in packages if not util.find_spec(pkg)]
@@ -183,16 +207,43 @@ def check_required_packages(packages: list[str]) -> None:
 
 class Serializable:
     def serialize(self):
+        """
+        Serialize the object to a byte stream.
+
+        Returns:
+            bytes: Serialized byte stream.
+        """
         return pickle.dumps(self)
 
     @classmethod
     def deserialize(cls, data):
+        """
+        Deserialize the object from a byte stream.
+
+        Args:
+            data (bytes): Serialized byte stream.
+
+        Returns:
+            Serializable: Deserialized object.
+        """
         return pickle.loads(data)
 
     def __getstate__(self):
+        """
+        Get the state of the object for serialization.
+
+        Returns:
+            dict: State of the object.
+        """
         return self.__dict__
-    
+
     def __setstate__(self, state):
+        """
+        Set the state of the object during deserialization.
+
+        Args:
+            state (dict): State of the object.
+        """
         self.__dict__.update(state)
 
 
@@ -214,10 +265,16 @@ class BasePipeline(Serializable):
         self.required_packages = getattr(self, "required_packages", [])
         check_required_packages(self.required_packages)
 
-        self.__post_init__(**config.init_kwargs)
+        self.post_init(**config.init_kwargs)
 
     @property
     def logger(self):
+        """
+        Get the logger for the pipeline.
+
+        Returns:
+            logging.Logger: Logger for the pipeline.
+        """
         if not hasattr(self, "_logger"):
             self._logger = getLogger(self.class_name)
             self._logger.setLevel(logging.INFO)
@@ -229,7 +286,7 @@ class BasePipeline(Serializable):
             self._logger.addHandler(handler)
         return self._logger
 
-    def __post_init__(self, **kwargs: Any) -> None:
+    def post_init(self, **kwargs: Any) -> None:
         """
         Post initialization method. Write Pipeline initialization code here.
 
@@ -268,6 +325,12 @@ class BasePipeline(Serializable):
                     yield from result
 
     def __repr__(self):
+        """
+        Get the string representation of the pipeline.
+
+        Returns:
+            str: String representation of the pipeline.
+        """
         repr = f"{self.class_name}\n"
         repr += " " * 4 + str(self.config)
         return repr
@@ -319,7 +382,7 @@ class BasePipeline(Serializable):
         Returns:
             BasePipeline: Pipeline object.
         """
-        with open(path, "r") as f:
+        with open(path) as f:
             cfg = yaml.safe_load(f)
         cfg = PipelineConfig(**cfg)
         return cls.from_config(cfg)
@@ -327,12 +390,24 @@ class BasePipeline(Serializable):
 
 class AsyncBasePipeline(BasePipeline):
     def __init__(self, config: PipelineConfig):
+        """
+        Initialize the asynchronous pipeline.
+
+        Args:
+            config (PipelineConfig): Pipeline configuration.
+        """
         super().__init__(config)
         config.async_batch_size = config.async_batch_size or 1000
         config.async_concurrency = config.async_concurrency or 100
 
     @property
     def semaphore(self):
+        """
+        Get the semaphore for limiting concurrency.
+
+        Returns:
+            asyncio.Semaphore: Semaphore for limiting concurrency.
+        """
         return asyncio.Semaphore(self.config.async_concurrency)
 
     async def run_each(self, dct: dict) -> dict:
@@ -348,6 +423,15 @@ class AsyncBasePipeline(BasePipeline):
         raise NotImplementedError(f"{self.class_name} is missing `run_each` method")
 
     async def _async_call(self, dcts: list[dict]) -> list[dict]:
+        """
+        Run the pipeline on a list of input samples asynchronously.
+
+        Args:
+            dcts (list[dict]): List of input samples.
+
+        Returns:
+            list[dict]: List of output samples.
+        """
         sem = asyncio.Semaphore(self.config.async_concurrency)
 
         async def limit_concurrency(sem, coro):
@@ -361,6 +445,16 @@ class AsyncBasePipeline(BasePipeline):
         return await atqdm.gather(*tasks, desc=self.class_name)
 
     def get_chunk(self, dcts: DictsGenerator, chunk_size: int) -> DictsGenerator:
+        """
+        Get chunks of input samples.
+
+        Args:
+            dcts (DictsGenerator): Input samples.
+            chunk_size (int): Size of each chunk.
+
+        Returns:
+            DictsGenerator: Generator of chunks of input samples.
+        """
         it = iter(dcts)
         while chunk := list(islice(it, chunk_size)):
             yield list(chunk)
@@ -377,3 +471,11 @@ class AsyncBasePipeline(BasePipeline):
 
         for chunk in self.get_chunk(dcts, self.config.async_batch_size):
             yield from asyncio.run(self._async_call(chunk))
+
+
+__all__ = [
+    DictsGenerator,
+    PipelineConfig,
+    BasePipeline,
+    AsyncBasePipeline,
+]

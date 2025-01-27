@@ -23,6 +23,7 @@ numpy = "^2.2.2"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.9.1"
+black = "^24.10.0"
 
 
 [tool.poetry.group.docling.dependencies]
@@ -37,12 +38,23 @@ rensa = "^0.1.7"
 [tool.poetry.group.trafilatura.dependencies]
 trafilatura = "^2.0.0"
 
+
+
+[tool.poetry.group.docs.dependencies]
+pdoc = "^15.0.1"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
+fix = true
+include = ["config_synth_flow/**"]
+line-length = 100
 
+[tool.ruff.lint]
+ignore = ["E501"]
+select = ["E", "F", "I", "UP"]
 
 [tool.poetry.scripts]
 run-seq = "config_synth_flow.scripts.run_seq:main"

@@ -1,19 +1,22 @@
+from datasets import Dataset, IterableDataset, load_dataset
+
 from ..base import DictsGenerator
-from datasets import load_dataset, Dataset, IterableDataset
 from .base import BaseReader
 
 
 class HfDatasetReader(BaseReader):
     required_packages: list = ["datasets"]
 
-    def __post_init__(self, resume: bool, dataset_kwargs: dict, debug: bool = False):
+    def post_init(
+        self, dataset_kwargs: dict, resume: bool = False, debug: bool = False
+    ):
         """
         Read the dataset from the given kwargs.
 
         Args:
             dataset_kwargs (dict): Dataset kwargs to load the dataset. refer to `datasets.load_dataset` for more details.
         """
-        super().__post_init__(resume=resume)
+        super().post_init(resume=resume)
 
         self.dataset_kwargs = dataset_kwargs
         self.ds = self.load_dataset(dataset_kwargs)

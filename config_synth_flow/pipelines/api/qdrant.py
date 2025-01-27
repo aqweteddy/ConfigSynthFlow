@@ -1,13 +1,15 @@
+from collections.abc import Generator
+
+from qdrant_client import QdrantClient, models
+
 from ...base import BasePipeline, DictsGenerator
 from .infinity import InfinityApiEmbedder
-from typing import Generator
-from qdrant_client import QdrantClient, models
 
 
 class QdrantApiRetriever(BasePipeline):
     required_packages = ["qdrant_client"]
-    
-    def __post_init__(
+
+    def post_init(
         self,
         embedder: InfinityApiEmbedder,
         api_base: str,
@@ -20,17 +22,18 @@ class QdrantApiRetriever(BasePipeline):
         exact_deduplication: bool = True,
         timeout: int = 20,
     ):
-        """Retreive documents from QdrantDB
+        """Retrieve documents from QdrantDB.
 
         Args:
             embedder (InfinityApiEmbedder): Embedder pipeline to get embeddings. Must have `get_embeddings` method.
-            api_base (str): QdrantDB API base URL
+            api_base (str): QdrantDB API base URL.
             api_port (int, optional): QdrantDB API port. Defaults to 6333.
             collection_name (str, optional): QdrantDB collection name. Defaults to "default".
             qdrant_text_key (str, optional): Key to get text from QdrantDB payload. Defaults to "text".
-            k_range (tuple[int, int], optional): Range of retrieved documents. Defaults to [0, 5).
-            similarity_threshold (float, optional): Minimum similarity score to retrieve. Defaults to 0.5.
+            k_range (tuple[int, int], optional): Range of retrieved documents. Defaults to (0, 5).
+            similarity_threshold (float, optional): Minimum similarity score to retrieve. Defaults to 0.4.
             output_col (str, optional): Output column name. Defaults to "_retrieved".
+            exact_deduplication (bool, optional): Whether to perform exact deduplication. Defaults to True.
             timeout (int, optional): API request timeout. Defaults to 20.
         """
         self.embedder = embedder
@@ -58,6 +61,14 @@ class QdrantApiRetriever(BasePipeline):
             yield batch
 
     def dedup_text_content(self, text_list: list[dict]) -> Generator[dict, None, None]:
+        """Deduplicate text content.
+
+        Args:
+            text_list (list[dict]): List of text dictionaries.
+
+        Returns:
+            Generator[dict, None, None]: Deduplicated text dictionaries.
+        """
         used_texts = set()
         result = []
         for text in text_list:
@@ -65,30 +76,45 @@ class QdrantApiRetriever(BasePipeline):
                 used_texts.add(text[self.qdrant_text_key])
                 result.append(text)
         return result
-    
-    def batch_insert(self, 
-                     dcts: DictsGenerator,
-                     collection_name: str = None,
-                     ):
+
+    def batch_insert(
+        self,
+        dcts: DictsGenerator,
+        collection_name: str = None,
+    ):
+        """Batch insert documents into QdrantDB.
+
+        Args:
+            dcts (DictsGenerator): Generator of dictionaries to insert.
+            collection_name (str, optional): QdrantDB collection name. Defaults to None.
+        """
         payloads = [
             {
-                'id': d.get('id', None),
+                "id": d.get("id", None),
                 self.qdrant_text_key: d[self.qdrant_text_key],
-                'metadata': d.get('metadata', {}),
+                "metadata": d.get("metadata", {}),
             }
             for d in dcts
         ]
         self.qdrant_cli.upload_collection(
             collection_name=collection_name,
             vectors=[self.embedder.query_lambda_col(d) for d in dcts],
-            payload=payloads
+            payload=payloads,
         )
-    
+
     def __call__(self, dcts: DictsGenerator) -> DictsGenerator:
+        """Retrieve documents from QdrantDB.
+
+        Args:
+            dcts (DictsGenerator): Generator of dictionaries to retrieve.
+
+        Returns:
+            DictsGenerator: Generator of dictionaries with retrieved documents.
+        """
         for chunked_dcts in self.__chunk_batch(dcts):
             queries = [self.embedder.query_lambda_col(d) for d in chunked_dcts]
             embeddings = self.embedder.get_embeddings(queries)
-            
+
             reqs = [
                 models.SearchRequest(
                     vector=emb,
@@ -107,9 +133,11 @@ class QdrantApiRetriever(BasePipeline):
 
             for dct, retrieved in zip(chunked_dcts, retrieved_list):
                 output = [
-                    {'text': r.payload[self.qdrant_text_key], 
-                     'score': r.score, 
-                     'collection': self.collection_name} 
+                    {
+                        "text": r.payload[self.qdrant_text_key],
+                        "score": r.score,
+                        "collection": self.collection_name,
+                    }
                     for r in retrieved
                 ][self.k_range[0] : self.k_range[1]]
                 if self.output_col in dct:

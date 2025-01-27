@@ -1,26 +1,34 @@
-from ...base import BasePipeline, AsyncBasePipeline
+import json
+import random
+import time
 
+from jinja2 import Template
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
-import random
-import json
-import time
-from jinja2 import Template
+
+from ...base import AsyncBasePipeline, BasePipeline
 
 
 class OpenaiTemplateMapper(BasePipeline):
     required_packages = ["jinja2", "openai"]
 
-    def __post_init__(
+    def post_init(
         self,
         jinja_template: str,
         system_prompt: str = None,
         output_col: str = "_prompt",
     ):
+        """Initialize the OpenaiTemplateMapper.
+
+        Args:
+            jinja_template (str): Jinja2 template string.
+            system_prompt (str, optional): System prompt for the chat. Defaults to None.
+            output_col (str, optional): Output column name. Defaults to "_prompt".
+        """
         self._template = jinja_template
         self.output_col = output_col
         self.system_prompt = system_prompt
-    
+
     @property
     def template(self):
         if isinstance(self._template, str):
@@ -28,6 +36,14 @@ class OpenaiTemplateMapper(BasePipeline):
         return self._template
 
     def run_each(self, dct: dict) -> dict:
+        """Run the template mapper on each dictionary.
+
+        Args:
+            dct (dict): Input dictionary.
+
+        Returns:
+            dict: Dictionary with the generated prompt.
+        """
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
@@ -38,7 +54,7 @@ class OpenaiTemplateMapper(BasePipeline):
 
 
 class AsyncOpenAIChat(AsyncBasePipeline):
-    def __post_init__(
+    def post_init(
         self,
         model: str = "gpt-4o-mini",
         openai_kwargs: dict = None,
@@ -52,7 +68,7 @@ class AsyncOpenAIChat(AsyncBasePipeline):
             model (str, optional): OpenAI model name. Defaults to "gpt-4o-mini".
             openai_kwargs (dict, optional): OpenAI client kwargs. Defaults to None.
             gen_kwargs (dict, optional): OpenAI generation kwargs. For example, `temperature`, `max_tokens`, `response_format`, etc. Defaults to None.
-            messages_col (str, optional): Input messages column name. Defaults to "messages".
+            messages_col (str, optional): Input messages column name. Defaults to "_prompt".
             output_col (str, optional): Output column name. Defaults to "_response".
         """
 
@@ -64,7 +80,6 @@ class AsyncOpenAIChat(AsyncBasePipeline):
 
         self.messages_col = messages_col
         self.output_col = output_col
-        
 
     @property
     def openai_client(self):
@@ -73,6 +88,14 @@ class AsyncOpenAIChat(AsyncBasePipeline):
         return self._openai_client
 
     async def run_each(self, dct: dict) -> dict:
+        """Generate a response for each dictionary using OpenAI Chat API.
+
+        Args:
+            dct (dict): Input dictionary.
+
+        Returns:
+            dict: Dictionary with the generated response.
+        """
         resp = await self.openai_client.chat.completions.create(
             messages=dct[self.messages_col], **self.gen_kwargs
         )
@@ -86,29 +109,46 @@ class AsyncOpenAIChat(AsyncBasePipeline):
         return dct
 
     def read_json_str(self, json_str: str) -> dict:
-        if '```json' in json_str:
-            json_str = json_str.split('```json', 1)[-1]
-            json_str = json_str.replace('```', '').strip()
-        
+        """Read a JSON string and convert it to a dictionary.
+
+        Args:
+            json_str (str): JSON string.
+
+        Returns:
+            dict: Parsed JSON dictionary.
+        """
+        if "```json" in json_str:
+            json_str = json_str.split("```json", 1)[-1]
+            json_str = json_str.replace("```", "").strip()
+
         try:
             return json.loads(json_str)
         except json.JSONDecodeError:
             try:
                 return eval(json_str)
-            except:
+            except Exception:
                 return {}
 
 
 class AsyncOpenAICompletion(AsyncOpenAIChat):
     async def run_each(self, dct: dict) -> dict:
+        """Generate a completion for each dictionary using OpenAI Completion API.
+
+        Args:
+            dct (dict): Input dictionary.
+
+        Returns:
+            dict: Dictionary with the generated completion.
+        """
         resp = await self.openai_client.completions.create(
-            prompt=dct[self.messages_col][-1]['content'], **self.gen_kwargs
+            prompt=dct[self.messages_col][-1]["content"], **self.gen_kwargs
         )
         dct[self.output_col] = resp.choices[0].text
         return dct
 
+
 class BatchOpenAIChat(AsyncOpenAIChat):
-    def __post_init__(
+    def post_init(
         self,
         model="gpt-4o-mini",
         openai_kwargs=None,
@@ -135,6 +175,14 @@ class BatchOpenAIChat(AsyncOpenAIChat):
         self.client = OpenAI(**self.openai_kwargs)
 
     def __write_batch_to_tmp(self, dcts: list[dict]):
+        """Write batch data to a temporary file.
+
+        Args:
+            dcts (list[dict]): List of dictionaries to write.
+
+        Returns:
+            str: Path to the temporary file.
+        """
         path = f"/tmp/batch_{random.randint(0, 100000)}.jsonl"
         f = open(path, "w")
         idx = 0
@@ -153,6 +201,14 @@ class BatchOpenAIChat(AsyncOpenAIChat):
         return path
 
     def batch_generate(self, dcts: list[dict[str, str]]) -> list[str]:
+        """Generate responses in batch using OpenAI Chat API.
+
+        Args:
+            dcts (list[dict[str, str]]): List of dictionaries to generate responses for.
+
+        Returns:
+            list[str]: List of generated responses.
+        """
         dcts = list(dcts)
         file = self.__write_batch_to_tmp(dcts)
         batch_input_file = self.client.files.create(
