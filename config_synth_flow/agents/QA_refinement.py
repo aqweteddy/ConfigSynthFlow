@@ -107,6 +107,12 @@ class ValidAgent(BaseAgent):
 
 
 class QARefinementAgent(BaseAgent):
+    """
+    There are two sub-agents in this agent: edit_agent and validation_agent.
+    The edit_agent refines the input and the validation_agent validates the input.
+    `QARefinementAgent` will run above agents in a loop until the `early_stop_criteria_lambda` or `max_round` is met.
+    """
+
     def post_init(
         self,
         edit_agent: EditAgent,
@@ -118,7 +124,7 @@ class QARefinementAgent(BaseAgent):
         history_col: str = None,
     ):
         """
-        QA Refinement Agent
+        Initialize the QARefinementAgent. The agent will refine the input until the `early_stop_criteria` or `max_round` is met.
 
         Args:
             edit_agent (BaseAgent): The agent that will refine the input. `edit_agent.run_agent` output should be a dict with the keys "query" and "answer"
@@ -129,7 +135,6 @@ class QARefinementAgent(BaseAgent):
             output_col (str, optional): The output column. Defaults to "messages".
             metadata_col (str, optional): The metadata column. Defaults to "metadata".
             history_col (str, optional): The history column. Defaults to "history".
-            mode (Literal["refine", "multiturn"], optional): The mode of the agent. Defaults to "refine".
         """
         self.edit_agent = edit_agent
         self.validation_agent = valid_agent

@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 
-from ..executor import SequentialExecutor
+from ..executor import BaseExecutor
 
 
 def main():
@@ -8,5 +8,5 @@ def main():
     parser.add_argument("cfg_path", type=str)
     args = parser.parse_args()
 
-    executor: SequentialExecutor = SequentialExecutor.from_yaml(args.cfg_path)
+    executor: BaseExecutor = BaseExecutor.from_yaml(args.cfg_path)
     executor.execute()

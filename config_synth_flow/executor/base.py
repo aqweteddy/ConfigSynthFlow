@@ -13,6 +13,8 @@ class BaseExecutor(BasePipeline):
         """
         super().__init__(config)
         self.reader.set_writer_output_path(self.writer.output_path)
+        if self.writer is not None and self.writer.output_path is not None:
+            self.config.save(self.writer.output_path / "config.yml")
 
     def post_init(
         self,
@@ -29,3 +31,7 @@ class BaseExecutor(BasePipeline):
         """
         self.reader = reader
         self.writer = writer
+
+    def execute(self) -> None:
+        """Executes the pipeline from reader to writer."""
+        raise NotImplementedError

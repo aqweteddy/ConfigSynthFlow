@@ -6,14 +6,13 @@ This module contains the API classes for the different pipelines.
 """
 
 from .infinity import InfinityApiEmbedder, InfinityApiReranker
-from .openai_chat import AsyncOpenAIChat, BatchOpenAIChat, OpenaiTemplateMapper
+from .openai_chat import AsyncOpenAIChat, BatchOpenAIChat
 from .qdrant import QdrantApiRetriever
 
 ___all__ = [
     InfinityApiEmbedder,
     InfinityApiReranker,
     QdrantApiRetriever,
-    OpenaiTemplateMapper,
     AsyncOpenAIChat,
     BatchOpenAIChat,
 ]

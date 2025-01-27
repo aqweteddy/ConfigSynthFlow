@@ -1,3 +1,5 @@
+import asyncio
+
 from aiohttp import ClientSession
 
 from ...base import AsyncBasePipeline
@@ -177,3 +179,14 @@ class InfinityApiEmbedder(AsyncBasePipeline):
         embeddings = await self.apost(query)
         dct[self.output_col] = embeddings
         return dct
+
+    def get_embeddings(self, query: list[str]) -> list[float]:
+        """Get embeddings for a list of queries.
+
+        Args:
+            query (list[str]): List of query strings.
+
+        Returns:
+            list[float]: List of embeddings.
+        """
+        return asyncio.run(self.apost(query))

@@ -19,7 +19,7 @@ class ListFlatter(BasePipeline):
         """
         self.text_col = text_col
 
-    def run_each(self, dct: dict):
+    def run_each(self, dct: dict) -> dict:
         """
         Flatten the list in the specified column of the dictionary.
 
@@ -45,7 +45,7 @@ class ListFlatter(BasePipeline):
 
 class RemoveColumns(BasePipeline):
     """
-    A pipeline to remove specified columns from dictionaries.
+    A pipeline to remove specified columns or hidden columns from dictionaries.
     """
 
     def post_init(self, remove_hidden_cols: bool = True, cols: list[str] = None):
@@ -59,7 +59,7 @@ class RemoveColumns(BasePipeline):
         self.columns = cols or []
         self.remove_hidden_cols = remove_hidden_cols
 
-    def run_each(self, dct: dict):
+    def run_each(self, dct: dict) -> dict:
         """
         Remove specified columns from the dictionary.
 
@@ -69,7 +69,7 @@ class RemoveColumns(BasePipeline):
         Returns:
             dict: The dictionary with specified columns removed.
         """
-        keys = list(dct.keys())
+        keys: list[str] = list(dct.keys())
         for k in keys:
             if k in self.columns:
                 dct.pop(k)

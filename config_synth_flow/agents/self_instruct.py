@@ -6,6 +6,10 @@ from .QA_refinement import QueryResponseItem
 
 
 class DocSelfInstructAgent(BaseAgent):
+    """
+    Agent for generating QA from a document.
+    """
+
     def post_init(
         self,
         model="gpt-4o-mini",
