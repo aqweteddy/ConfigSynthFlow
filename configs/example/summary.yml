@@ -15,7 +15,10 @@ init_kwargs:
   pipes:
     - import_path: AsyncOpenAIChat
       init_kwargs:
-        model: gpt-4o-mini
+        model: klusterai/Meta-Llama-3.3-70B-Instruct-Turbo
+        openai_kwargs:
+          base_url: https://api.kluster.ai/v1
+          api_key: ${API_KEY}
         gen_kwargs:
           top_p: 0.4
           max_tokens: 100

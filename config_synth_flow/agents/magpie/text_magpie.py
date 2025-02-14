@@ -1,14 +1,13 @@
-from jinja2 import Template
 from openai.types import Completion
 from transformers import AutoTokenizer
 
-from .base import BaseAgent
+from ..base import BaseAgent
 
 DEFAULT_SYSTEM_PROMPT = """你是一個專注於從文章中提取相關資訊並以台灣語境的繁體中文回答問題的 AI 助理。請遵循以下指導原則：
 
-### 使用問題特徵
+### User 問題特徵
 
-1. 問題會與文章內容相關，但使用者不會提到「文章」或「根據文章」等字眼。
+1. 問題會與文章內容相關，但使用者總是完整的描述問題，不會提到「文章」或「根據文章」等字眼。
 2. 問題包含明確的關鍵字或關鍵實體 (例如產品名稱、數字、編號)。
 3. 問題類型會包括以下之一：
    - 產品推薦或服務比較
@@ -45,7 +44,7 @@ class MagpieBasedOnTextAgent(BaseAgent):
         tokenizer_path: str = None,
         openai_kwargs=None,
         gen_kwargs=None,
-        system_prompt: str = None,
+        system_template: str = None,
         banned_words: list[str] = None,
         first_turn: list[str] = None,
         num_max_turns: int = 3,
@@ -53,12 +52,18 @@ class MagpieBasedOnTextAgent(BaseAgent):
         user_prefix: str = "<|im_start|>user\n",
         assistant_prefix: str = "<|im_start|>assistant\n",
     ):
-        super().post_init(model, openai_kwargs, gen_kwargs, output_col=output_col)
-        self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+        system_template = system_template or DEFAULT_SYSTEM_PROMPT
+        super().post_init(
+            model,
+            openai_kwargs,
+            gen_kwargs,
+            output_col=output_col,
+            system_template=system_template,
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path or model)
         self.user_prefix = user_prefix
         self.assistant_prefix = assistant_prefix
-        self.first_turn = first_turn or DEFAULT_FIRST_TURN  # [USER, ASSISTANT]
+        self.first_turn = first_turn  # [USER, ASSISTANT]
         self.banned_words = banned_words or ["文章", "文中"]
         self.num_max_turns = num_max_turns
 
@@ -74,7 +79,7 @@ class MagpieBasedOnTextAgent(BaseAgent):
     async def chat(self, messages: list[dict[str, str]], role: str) -> str:
         prompt = self.tokenizer.apply_chat_template(messages, tokenize=False)
         prompt += self.user_prefix if role == "user" else self.assistant_prefix
-        for i in range(5):
+        for i in range(3):
             resp: Completion = await self.openai_client.completions.create(
                 prompt=prompt, **self.gen_kwargs
             )
@@ -88,22 +93,25 @@ class MagpieBasedOnTextAgent(BaseAgent):
 
     async def run_agent(self, dct: dict) -> list[dict[str, str]]:
         messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": Template(self.first_turn[0]).render(**dct)},
-            {"role": "assistant", "content": self.first_turn[1]},
+            {"role": "system", "content": self.system_template.render(**dct)},
         ]
+
+        if self.first_turn:
+            messages.append({"role": "user", "content": self.first_turn[0]})
+            messages.append({"role": "assistant", "content": self.first_turn[1]})
 
         for _ in range(self.num_max_turns):
             user = await self.chat(messages, "user")
-            # print('user\n', user)
             if not user:
                 break
             assistant = await self.chat(
                 messages + [{"role": "user", "content": user}], "assistant"
             )
-            # print(assistant, '\n\n\n-------')
             if not assistant:
                 break
             messages.append({"role": "user", "content": user})
             messages.append({"role": "assistant", "content": assistant})
-        return messages[3:]  # Skip the system prompt and first turn
+        if self.first_turn:
+            return messages[3:]
+        else:
+            return messages[1:]

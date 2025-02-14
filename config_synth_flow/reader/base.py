@@ -40,8 +40,11 @@ class BaseReader(BasePipeline):
         """
         skipped_cnt = 0
         for dct in self.read():
-            id = self.get_unique_id(dct)
-            dct["hash_id"] = id
+            if "hash_id" in dct:
+                id = dct["hash_id"]
+            else:
+                id = self.get_unique_id(dct)
+                dct["hash_id"] = id
 
             if self.resume and id in self.unique_id_set:
                 skipped_cnt += 1

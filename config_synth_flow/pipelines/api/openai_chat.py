@@ -42,15 +42,14 @@ class AsyncOpenAIChat(AsyncBasePipeline):
         self.output_col = output_col
         self._user_template = user_template
         self._system_template = system_template
-
     @property
-    def system_template(self):
+    def system_template(self) -> Template:
         if isinstance(self._system_template, str):
             self._system_template = Template(self._system_template)
         return self._system_template
 
     @property
-    def user_template(self):
+    def user_template(self) -> Template:
         if isinstance(self._user_template, str):
             self._user_template = Template(self._user_template)
         return self._user_template
@@ -61,6 +60,30 @@ class AsyncOpenAIChat(AsyncBasePipeline):
             self._openai_client = AsyncOpenAI(**self.openai_kwargs)
         return self._openai_client
 
+    def get_messages(
+        self, dct: dict, messages_col: str = None, user_template: str = None
+    ) -> list[dict]:
+        """Get messages with the input dictionary and user_template/system_template.
+
+        Args:
+            dct (dict): Input dictionary.
+
+        Returns:
+            list[dict]: List of messages.
+        """
+        if messages_col is None and hasattr(self, "messages_col"):
+            messages_col = self.messages_col
+
+        user_template = user_template or self.user_template
+
+        messages = []
+        if self.system_template:
+            messages.append(
+                {"role": "system", "content": self.system_template.render(**dct)}
+            )
+        messages.append({"role": "user", "content": user_template.render(**dct)})
+        return messages
+
     async def run_each(self, dct: dict) -> dict:
         """Generate a response for each dictionary using OpenAI Chat API.
 
@@ -70,19 +93,15 @@ class AsyncOpenAIChat(AsyncBasePipeline):
         Returns:
             dict: Dictionary with the generated response.
         """
-
-        if self.messages_col not in dct:
-            messages = []
-            if self.system_template:
-                messages.append({"role": "system", "content": self.system_template.render(**dct)})
-            messages.append({"role": "user", "content": self.user_template.render(**dct)})
-            dct[self.messages_col] = messages
-
+        dct[self.messages_col] = self.get_messages(dct, user_template=self.user_template)
         resp = await self.openai_client.chat.completions.create(
             messages=dct[self.messages_col], **self.gen_kwargs
         )
         resp: ChatCompletion = resp.choices[0].message.content
-        is_output_json = "json" in self.gen_kwargs.get("response_format", {}).get("type", "")
+        is_output_json = "json" in self.gen_kwargs.get("response_format", {}).get(
+            "type", ""
+        )
+
         if is_output_json:
             resp = self.read_json_str(resp)
         dct[self.output_col] = resp
@@ -204,7 +223,9 @@ class BatchOpenAIChat(AsyncOpenAIChat):
         """
         dcts = list(dcts)
         file = self.__write_batch_to_tmp(dcts)
-        batch_input_file = self.client.files.create(file=open(file, "rb"), purpose="batch")
+        batch_input_file = self.client.files.create(
+            file=open(file, "rb"), purpose="batch"
+        )
         batch_obj = self.client.batches.create(
             input_file_id=batch_input_file.id,
             endpoint="/v1/chat/completions",
@@ -221,7 +242,9 @@ class BatchOpenAIChat(AsyncOpenAIChat):
             time.sleep(random.randint(5, 15))
 
         if status in ["failed", "expired", "cancelled"]:
-            raise ValueError(f"Batch failed with status: {status}, errors: {batch_obj.errors}")
+            raise ValueError(
+                f"Batch failed with status: {status}, errors: {batch_obj.errors}"
+            )
 
         resps = list(self.client.files.content(batch_obj.output_file_id).iter_lines())
         resps = [json.loads(resp) for resp in resps]
@@ -230,7 +253,9 @@ class BatchOpenAIChat(AsyncOpenAIChat):
         result = []
         for resp in resps:
             try:
-                result.append(resp["response"]["body"]["choices"][0]["message"]["content"])
+                result.append(
+                    resp["response"]["body"]["choices"][0]["message"]["content"]
+                )
             except KeyError:
                 result.append("error")
         return result

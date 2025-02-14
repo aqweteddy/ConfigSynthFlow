@@ -8,7 +8,11 @@ class HfDatasetReader(BaseReader):
     required_packages: list = ["datasets"]
 
     def post_init(
-        self, dataset_kwargs: dict, resume: bool = False, debug: bool = False
+        self,
+        dataset_kwargs: dict,
+        resume: bool = False,
+        debug: bool = False,
+        shuffle: bool = False,
     ):
         """
         Read the dataset from the given kwargs.
@@ -21,6 +25,8 @@ class HfDatasetReader(BaseReader):
         self.dataset_kwargs = dataset_kwargs
         self.ds = self.load_dataset(dataset_kwargs)
         self.num_proc = self.dataset_kwargs.get("num_proc", 4)
+        if shuffle:
+            self.ds = self.ds.shuffle()
 
         if debug:
             num = 10 if debug is True else debug

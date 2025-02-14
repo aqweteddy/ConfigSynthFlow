@@ -17,7 +17,7 @@ class QdrantApiRetriever(BasePipeline):
         collection_name: str = "default",
         qdrant_text_key: str = "text",
         k_range: tuple[int, int] = (0, 5),
-        similarity_threshold: float = 0.4,
+        similarity_threshold: float = 0.2,
         output_col: str = "_retrieved",
         exact_deduplication: bool = True,
         timeout: int = 20,
@@ -47,6 +47,7 @@ class QdrantApiRetriever(BasePipeline):
         self.exact_deduplication = exact_deduplication
 
         self.qdrant_cli = QdrantClient(url=self.host, port=api_port)
+        self._exist_collection = False
 
     def __chunk_batch(self, dcts: DictsGenerator, batch_size: int = None):  # type: ignore
         batch = []
@@ -96,9 +97,35 @@ class QdrantApiRetriever(BasePipeline):
             }
             for d in dcts
         ]
+
+        embeds = self.embedder.get_embeddings(
+            [self.embedder.query_lambda_col(d) for d in dcts]
+        )
+        if not self._exist_collection:
+            try:
+                self.qdrant_cli.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=models.VectorParams(
+                        size=len(embeds[0]), distance=models.Distance.COSINE
+                    ),
+                    optimizers_config=models.OptimizersConfigDiff(
+                        indexing_threshold=0, default_segment_number=2
+                    ),
+                    quantization_config=models.ScalarQuantization(
+                        scalar=models.ScalarQuantizationConfig(
+                            type=models.ScalarType.INT8,
+                            always_ram=True,
+                        ),
+                    ),
+                    shard_number=4,
+                )
+            except Exception as _:
+                pass
+            self._exist_collection = True
+
         self.qdrant_cli.upload_collection(
             collection_name=collection_name,
-            vectors=[self.embedder.query_lambda_col(d) for d in dcts],
+            vectors=embeds,
             payload=payloads,
         )
 
@@ -134,9 +161,11 @@ class QdrantApiRetriever(BasePipeline):
             for dct, retrieved in zip(chunked_dcts, retrieved_list):
                 output = [
                     {
-                        "text": r.payload[self.qdrant_text_key],
+                        "text": r.payload.pop(self.qdrant_text_key),
                         "score": r.score,
                         "collection": self.collection_name,
+                        "id": r.payload.pop("id", None),
+                        "metadata": r.payload,
                     }
                     for r in retrieved
                 ][self.k_range[0] : self.k_range[1]]

@@ -38,9 +38,9 @@ class HfWriter(BaseWriter):
             output_path = (
                 self.output_path / f"chunk_{self.chunk_id:05d}.{self.output_format}"
             )
-            self.chunk_id += 1
             if not output_path.exists():
                 break
+            self.chunk_id += 1
         self.logger.info(f"Saving result to {output_path}")
         if self.output_format == "jsonl":
             ds.to_json(output_path, force_ascii=False)

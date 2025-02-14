@@ -1,8 +1,13 @@
 from jinja2 import Template
+from pydantic import BaseModel
 
 from .base import BaseAgent
 from .constant import DEFAULT_SELF_INSTRUCT_FROM_DOC_TEMPLATE
-from .QA_refinement import QueryResponseItem
+
+
+class QueryResponseItem(BaseModel):
+    query: str
+    response: str
 
 
 class DocSelfInstructAgent(BaseAgent):

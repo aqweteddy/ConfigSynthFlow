@@ -28,18 +28,27 @@ class BaseAgent(AsyncOpenAIChat):
         Raises:
             Any exceptions raised by the OpenAI client during the API call.
         """
-        if "response_format" in self.gen_kwargs and issubclass(
-            self.gen_kwargs["response_format"], BaseModel
-        ):
-            res: ChatCompletion = await self.openai_client.beta.chat.completions.parse(
-                messages=messages, **self.gen_kwargs
-            )
-            return res.choices[0].message.parsed
-        else:
-            res: ChatCompletion = await self.openai_client.chat.completions.create(
-                messages=messages, **self.gen_kwargs
-            )
-            return res.choices[0].message.content
+        for i in range(3):
+            try:
+                if "response_format" in self.gen_kwargs and issubclass(
+                    self.gen_kwargs["response_format"], BaseModel
+                ):
+                    res: ChatCompletion = (
+                        await self.openai_client.beta.chat.completions.parse(
+                            messages=messages, **self.gen_kwargs
+                        )
+                    )
+                    return res.choices[0].message.parsed
+                else:
+                    res: ChatCompletion = (
+                        await self.openai_client.chat.completions.create(
+                            messages=messages, **self.gen_kwargs
+                        )
+                    )
+                    return res.choices[0].message.content
+            except Exception as e:
+                self.logger.error(f"Error in chat: {e}, retrying {i + 1} times.")
+        return ""
 
     async def run_agent(self, dct: dict) -> dict | str | Any:
         """Define the logic of the agent here
@@ -63,3 +72,7 @@ class BaseAgent(AsyncOpenAIChat):
         resp = await self.run_agent(dct)
         dct[self.output_col] = resp
         return dct
+
+
+# class BatchAgent(BatchOpenAIChat):
+#     def chat()

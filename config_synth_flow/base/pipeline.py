@@ -1,6 +1,11 @@
 import asyncio
+import importlib
+import inspect
 import logging
+import os
 import pickle
+import pkgutil
+import re
 from collections.abc import Generator
 from importlib import import_module, util
 from itertools import islice
@@ -9,9 +14,7 @@ from typing import Any, Callable, Union
 
 import yaml
 from tqdm.asyncio import tqdm as atqdm
-import inspect
-import pkgutil
-import importlib
+
 from .config import PipelineConfig
 
 DictsGenerator = Union[list[dict[str, Any]], Generator[dict[str, Any], None, None]]
@@ -31,16 +34,13 @@ def get_all_subclasses(package_name, base_class):
         if not is_pkg:
             try:
                 module = importlib.import_module(module_name)
-                # 遍歷 module 中的所有成員
                 for name, obj in inspect.getmembers(module, inspect.isclass):
-                    # 檢查是否繼承自 base_class 且避免基底 class 本身
                     if (
                         issubclass(obj, base_class)
                         and f"{obj.__module__}.{obj.__name__}" != base_class_name
                     ):
                         subclasses.add(f"{obj.__module__}.{obj.__name__}")
             except ImportError:
-                # 無法載入 module 時跳過
                 continue
     return subclasses
 
@@ -67,13 +67,15 @@ def _wrap_lambda(lambda_func: callable, *args, **kwargs) -> Callable:
                 for k, v in res.items():
                     dct[k] = v
                 return dct
+            elif isinstance(res, list):
+                return res
             elif isinstance(res, bool):
                 if res:
                     return dct
             else:
                 raise ValueError("lambda function must return either a dict or a bool")
 
-    cfg = PipelineConfig(init_kwargs={"lambda_func": lambda_func, "init_kwargs": {}})
+    cfg = PipelineConfig(init_kwargs={"init_kwargs": {}}, lambda_func=str(lambda_func))
     return WrappedLambda(cfg)
 
 
@@ -125,10 +127,11 @@ def _get_class(config: PipelineConfig):
                 f"Cannot import module: {config.import_path}. Check whether the import_path is correct."
             )
     elif config.lambda_func:
-        return _wrap_lambda(eval(config.lambda_func))
+        return _wrap_lambda(eval(config.lambda_func.strip()))
     else:
         raise ValueError(
-            "config must have either `import_path` or `lambda_func` key. Got: " + str(config)
+            "config must have either `import_path` or `lambda_func` key. Got: "
+            + str(config)
         )
 
     return getattr(m, func)(config)
@@ -176,6 +179,20 @@ class Serializable:
         self.__dict__.update(state)
 
 
+class EnvLoader(yaml.SafeLoader):
+    pass
+
+
+def env_var_constructor(loader, node):
+    value = loader.construct_scalar(node)
+    return os.getenv(value, f"Missing Env: {value}")
+
+
+# Add the custom constructor for ${VAR_NAME}
+EnvLoader.add_implicit_resolver("!env", re.compile(r"\$\{([^}]+)\}"), None)
+EnvLoader.add_constructor("!env", env_var_constructor)
+
+
 class BasePipeline(Serializable):
     class_name: str
     config: PipelineConfig
@@ -208,7 +225,9 @@ class BasePipeline(Serializable):
             self._logger = getLogger(self.class_name)
             self._logger.setLevel(logging.INFO)
             handler = StreamHandler()
-            formatter = Formatter("%(asctime)s - %(name)s - %(levelname)s | %(message)s")
+            formatter = Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s | %(message)s"
+            )
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
         return self._logger
@@ -221,7 +240,9 @@ class BasePipeline(Serializable):
             ImportError: If any of the required packages are missing.
         """
 
-        missing_packages = [pkg for pkg in self.required_packages if not util.find_spec(pkg)]
+        missing_packages = [
+            pkg for pkg in self.required_packages if not util.find_spec(pkg)
+        ]
         if missing_packages:
             raise ImportError(
                 f"Missing required packages: {missing_packages} in Pipeline {self.class_name}."
@@ -324,7 +345,7 @@ class BasePipeline(Serializable):
             BasePipeline: Pipeline object.
         """
         with open(path) as f:
-            cfg = yaml.safe_load(f)
+            cfg = yaml.load(f, Loader=EnvLoader)
         cfg = PipelineConfig(**cfg)
         return cls.from_config(cfg)
 

@@ -9,23 +9,19 @@ import ftfy
 from .base import BaseReader
 
 try:
-    from docling.datamodel.base_models import InputFormat
-    from docling.datamodel.document import ConversionResult
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
-    from docling.document_converter import DocumentConverter, PdfFormatOption
+    from markitdown import MarkItDown
 except ImportError:
     pass
 
 
-class DoclingReader(BaseReader):
-    required_packages = ["docling", "ftfy"]
+class MarkItDownReader(BaseReader):
+    required_packages = ["markitdown", "ftfy"]
 
     def post_init(
         self,
         data_path: str = None,
         file_list: str = None,
         num_thread: int = 2,
-        pdf_ocr: bool = False,
         num_proc: int = 4,
         batch_size: int = 1000,
         fix_encoding: bool = True,
@@ -37,15 +33,7 @@ class DoclingReader(BaseReader):
         Initialize the DoclingReader.
 
         Args:
-            data_path (str): Path to the data directory.
-            file_list (str): Path to the file list.
-            num_thread (int): Number of threads for PDF OCR. Defaults to 2.
-            pdf_ocr (bool): Whether to perform OCR on PDFs. Defaults to False.
-            num_proc (int): Number of processes for multiprocessing. Defaults to 4.
-            batch_size (int): Batch size for processing. Defaults to 1000.
-            fix_encoding (bool): Whether to fix text encoding issues. Defaults to True.
-            doc_format (list[str]): List of document formats to process. Defaults to ["xlsx", "docx", "pdf", "pptx", "md", "image"].
-            debug (bool): Debug mode flag. Defaults to False.
+
         """
         super().post_init(resume=resume)
         self.data_path = Path(data_path) if data_path else None
@@ -58,7 +46,6 @@ class DoclingReader(BaseReader):
 
         self.debug = 5 if debug is True else debug
 
-        self._pdf_option = PdfPipelineOptions(do_ocr=pdf_ocr, num_threads=num_thread)
         self.doc_postfix = [f".{f}" for f in self.doc_format if f != "image"]
         if "image" in self.doc_format:
             self.doc_postfix += [".jpg", ".jpeg", ".png", ".bmp", ".gif"]
@@ -67,9 +54,9 @@ class DoclingReader(BaseReader):
         self.num_thread = num_thread
         os.environ["OMP_NUM_THREADS"] = str(num_thread)
 
-    def get_doc_converter(self, idx: int) -> "DocumentConverter":
+    def get_doc_converter(self, idx: int) -> "MarkItDown":
         """
-        Get the DocumentConverter for the given process index.
+        Get the MarkItDown for the given process index.
 
         Args:
             idx (int): Process index.
@@ -78,12 +65,7 @@ class DoclingReader(BaseReader):
             DocumentConverter: The DocumentConverter instance.
         """
         if idx not in self._doc_converter_mapper:
-            self._doc_converter_mapper[idx] = DocumentConverter(
-                allowed_formats=self.doc_format,
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(pipeline_options=self._pdf_option)
-                },
-            )
+            self._doc_converter_mapper[idx] = MarkItDown()
         return self._doc_converter_mapper[idx]
 
     def _process(self, file: Path) -> dict | None:
@@ -103,8 +85,7 @@ class DoclingReader(BaseReader):
             return
 
         try:
-            doc = self.get_doc_converter(proc_id).convert(file, raises_on_error=False)
-            text = self.get_text(doc)
+            text = self.get_doc_converter(proc_id).convert(file).text_content
         except Exception as e:
             self.logger.error(f"Error processing {file}: {e}")
             return
@@ -114,10 +95,10 @@ class DoclingReader(BaseReader):
             if ftfy.is_bad(text):
                 text = ""
 
-        if self.fix_encoding and ftfy.is_bad(doc.input.file.as_posix()):
-            file_path = ftfy.fix_text(doc.input.file.as_posix())
+        if self.fix_encoding and ftfy.is_bad(file.as_posix()):
+            file_path = ftfy.fix_text(file.as_posix())
         else:
-            file_path = doc.input.file.as_posix()
+            file_path = file.as_posix()
 
         if text:
             return {"text": text, "file_path": file_path}
@@ -146,18 +127,6 @@ class DoclingReader(BaseReader):
 
         self.logger.info(f"Finished processing {cnt} files.")
 
-    def get_text(self, file: ConversionResult):
-        """
-        Extract text from the ConversionResult.
-
-        Args:
-            file (ConversionResult): The ConversionResult object.
-
-        Returns:
-            str: Extracted text.
-        """
-        return file.document.export_to_markdown()
-
     def read(self):
         """
         Read documents from the data path.
@@ -174,6 +143,8 @@ class DoclingReader(BaseReader):
             with open(self.file_list) as f:
                 files = [Path(line.strip()) for line in f]
             cnt = 0
+            if self.debug:
+                files = files[: self.debug]
             self.logger.info(f"Found {len(files)} files in the list.")
 
         for file in self.mp_run(files):

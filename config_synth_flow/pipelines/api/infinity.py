@@ -163,7 +163,9 @@ class InfinityApiEmbedder(AsyncBasePipeline):
         async with ClientSession() as session:
             async with session.post(self.host, json=params) as response:
                 res = await response.json()
+                res = res["data"]
                 res = sorted(res, key=lambda x: x["index"])
+
         return [r["embedding"] for r in res]
 
     async def run_each(self, dct: dict) -> dict:

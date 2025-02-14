@@ -97,7 +97,7 @@ class PipelineConfig(BaseModel):
         """
         self.__original_kwargs = self.model_dump()
         self.async_cfg = self.async_cfg or AsyncConfig()
-        
+
         if (
             self.import_path is None
             and self.lambda_func is None
