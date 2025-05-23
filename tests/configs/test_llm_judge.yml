@@ -1,0 +1,33 @@
+import_path: SequentialExecutor
+init_kwargs:
+  reader:
+    import_path: HfDatasetReader
+    init_kwargs:
+      debug: true
+      resume: true
+      dataset_kwargs:
+        path: json
+        data_files:
+          - tests/sample_data/messages.jsonl
+  writer:
+    import_path: HfWriter
+    init_kwargs:
+      output_path: tests/result/test_llm_judge
+  pipes:
+    - import_path: LlmAsJudge
+      init_kwargs:
+        litellm_kwargs:
+          model: gpt-4o-mini
+          temperature: 0.0
+          max_tokens: 500
+        judge_template:
+          name: default
+          template_str: |
+            請評估以下對話的品質，並給出1-10的分數。
+            對話：{{ messages }}
+        system_template:
+          name: default
+          template_str: |
+            你是一個專業的評分專家，請根據回答的品質、準確性和完整性進行評分。
+        messages_col: messages
+        output_col: judge_result 

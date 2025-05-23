@@ -1,0 +1,44 @@
+import_path: SequentialExecutor
+init_kwargs:
+  reader:
+    import_path: NullReader
+    init_kwargs:
+      num_data: 2
+  writer:
+    import_path: HfWriter
+    init_kwargs:
+      chunk_size: 1000
+      output_path: result/taiphone/magpie
+  pipes:
+  - import_path: Magpie
+    async_cfg:
+      concurrency: 250
+      batch_size: 1000
+    init_kwargs:
+      prompt_type_col: magpie_role
+      tokenizer_path: google/gemma-3-27b-it
+      user_prefix: "<start_of_turn>user\\n"
+      assistant_prefix: "<start_of_turn>model\\n"
+      litellm_kwargs:
+        model: openai//google/gemma-3-27b-it
+        api_base: http://localhost:30000/v1
+        top_p: 0.5
+        best_of: 1
+        # n: 5
+        max_tokens: 2000
+        temperature: 0.8
+        timeout: 600
+        stop:
+        - <end_of_turn>
+        - <start_of_turn>
+        - model
+        - user
+      system_template: configs/examples/system_prompts.jsonl
+      validator_list:
+      - judge: only_traditional_chinese
+        criteria_lambda: "lambda x: x"
+      - judge: num_chars
+        judge_kwargs:
+          num_user_max_chars: 100
+          num_assistant_max_chars: 1000
+  - import_path: RemoveColumns

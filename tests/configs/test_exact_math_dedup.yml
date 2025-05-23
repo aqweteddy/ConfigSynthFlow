@@ -1,0 +1,20 @@
+import_path: SequentialExecutor
+init_kwargs:
+  reader:
+    import_path: HfDatasetReader
+    init_kwargs:
+      debug: true
+      resume: true
+      dataset_kwargs:
+        path: json
+        data_files:
+          - tests/sample_data/text.jsonl
+  writer:
+    import_path: HfWriter
+    init_kwargs:
+      output_path: tests/result/test_minhash_dedup
+  pipes:
+    - import_path: SetExactMatchDeduplicator
+      init_kwargs:
+        text_col: text
+    - import_path: RemoveColumns

@@ -4,5 +4,5 @@ data/
 result/
 tests/result/
 local_script/
-configs/
+configs/*
 !configs/examples

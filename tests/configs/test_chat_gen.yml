@@ -1,0 +1,33 @@
+import_path: SequentialExecutor
+init_kwargs:
+  reader:
+    import_path: HfDatasetReader
+    init_kwargs:
+      debug: true
+      resume: true
+      dataset_kwargs:
+        path: json
+        data_files:
+          - tests/sample_data/text.jsonl
+  writer:
+    import_path: HfWriter
+    init_kwargs:
+      output_path: tests/result/test_chat_gen
+  pipes:
+    - import_path: ChatGenerator
+      init_kwargs:
+        litellm_kwargs:
+          model: gpt-4o-mini
+          top_p: 0.4
+          max_tokens: 100
+          temperature: 0.8
+        system_template:
+          name: default 
+          template_str: |
+            你是一個專業的摘要專家，請幫我摘要以下文章。
+        user_template: 
+          name: default
+          template_str: |
+            文章：{{ text }}
+        output_col: resp
+    - import_path: RemoveColumns
