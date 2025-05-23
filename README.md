@@ -1,21 +1,20 @@
 # Config Synth Flow
 
-A modular and extensible pipeline framework for processing, synthesizing, and generating configurations with a focus on asynchronous and parallel processing.
+Configurable Workflows for Synthetic Data Generation.
 
 ## Simple Usage
 
 ### Project Spotlight
 Config Synth Flow provides a configurable, flexible pipeline system that allows you to:
-- Create modular data processing pipelines through YAML configuration
-- Process data asynchronously with high concurrency 
-- Implement custom readers, writers, and executors
-- Generate and process content with various LLM providers through LiteLLM integration
-- Support both synchronous and asynchronous workflows
+- Create modular from data prcossing to data generation pipelines through YAML configuration
+- Sytnth data asynchronously with high concurrency.
+- Designed for easy extensibility with custom pipeline components.
+
 
 ### Environment Preparation
 1. This project uses Poetry for dependency management. Install Poetry first:
 ```bash
-pip install poetry
+curl -sSL https://install.python-poetry.org | python3 -
 ```
 
 2. Install dependencies:
@@ -29,44 +28,74 @@ poetry shell
 ```
 
 ### Running a Simple Example
+
 To run a simple pipeline, use the `run-seq` command:
 
 ```bash
-run-seq path/to/your/config.yml
-```
-
-Or you can run it from the script directly:
-
-```bash
-python -m config_synth_flow.scripts.run_seq path/to/your/config.yml
+run-seq configs/examples/magpie.yml
 ```
 
 ### Writing a Configuration File
-Config Synth Flow uses YAML configuration files to define the pipeline structure. Here's a simple example:
+
+ConfigSynthFlow uses YAML configuration files to define the pipeline structure. Here's a simple example:
 
 ```yaml
-import_path: config_synth_flow.base.executor.SimpleExecutor
+import_path: SequentialExecutor
 init_kwargs:
   reader:
-    import_path: config_synth_flow.reader.YourCustomReader
+    import_path: HfDatasetReader
     init_kwargs:
-      input_path: "path/to/input/data"
-      resume: false
-  
+      debug: true # debug mode
+      resume: false # resume from the last processed data
+      dataset_kwargs:
+        path: json
+        num_proc: 10
+        data_files:
+        - <your_data_path>
   writer:
-    import_path: YourCustomWriter
+    import_path: HfWriter # will output in jsonl format
     init_kwargs:
-      output_path: "path/to/output"
-      save_format: "jsonl"
+      chunk_size: 5000 # number of data to save in one file
+      output_path: result/test # output path
+  pipes:
+  - import_path: ChatGenerator # chat generator
+    init_kwargs:
+      prompt_type_col: role # prompt type column
+      litellm_kwargs:
+        model: gpt-4.1-nano # llm model
+  - import_path: RemoveColumns # remove columns
+    async_cfg:
+      concurrency: 100
+      batch_size: 10000
+    init_kwargs:
+      prompt_type_col: role
+      litellm_kwargs:
+        model: gpt-4.1-nano
+      system_template:
+      - name: zhtw # template name
+        weight: 1 # sample weight
+        template_str: | # template string
+          你是一個善於改寫長文本的AI助理，請幫我改寫以下文章，不要有任何多餘的前後綴。你的改寫必須要盡可能涵蓋所有原始文章的重點，且不要省略任何重要的細節。
+      user_template:
+      - name: zhtw
+        template_str: | # jinja template to format the prompt
+          # 任務
+
+          - 把文章改寫成 wiki 的文章段落，並去除不重要的部分。
+
+          # 文章
+
+          {{ text }}
+      output_col: rephrase # output key to save
 ```
 
 Configuration files support:
 - Pipelines instantiation via `import_path` and `init_kwargs`
 - Recursive pipeline definition (pipelines can contain other pipelines)
-- Fuzzy matching of pipeline names.
+- Fuzzy matching of pipeline names (`import_path`).
 - Environment variable interpolation for sensitive values
 
-you can see `example_configs/` for more examples.
+you can see `configs/examples/` for more examples.
 
 
 ### Base Classes Overview
@@ -182,6 +211,7 @@ Judge pipelines evaluate and score content generated within the system:
 - **InfinitySlidingWindowEduClassifier**: Specialized classifier for educational content
 
 #### Paper Implementation Components
+
 The Papers pipelines implement algorithms and techniques from academic papers:
 
 - **[Magpie](https://arxiv.org/abs/2406.08464)**: Implementation of the Magpie approach for instruction tuning data generation
@@ -200,7 +230,7 @@ The pipeline system follows a hierarchical structure:
 
 The main execution flow follows the pattern controlled by `Executor`:
 ```
-Reader → [Pipes] → Writer
+Reader → [\*Pipes] → Writer
 ```
 
 Key components communicate through well-defined interfaces, making the system modular and extensible.
@@ -246,8 +276,13 @@ class MyCustomPipeline(BasePipeline):
     def post_init(self, param1: str, param2: int = 0):
         self.param1 = param1
         self.param2 = param2
-        
-    def process(self, data):
+      
+    def __call__(self, data: DictsGenerator) -> DictsGenerator:
+        # Implement your processing logic here
+        for item in data:
+            yield self.run_each(item)
+      
+    def run_each(self, data: dict) -> dict:
         # Implement your processing logic here
         return {"processed": data, "param1": self.param1}
 ```
@@ -274,10 +309,10 @@ class MyAsyncChatPipeline(AsyncChatBasePipeline):
 ## Citation
 ```
 @software{config_synth_flow,
-  author = {The Config Synth Flow Team},
-  title = {Config Synth Flow: A Modular Pipeline Framework},
-  year = {2023},
+  author = {aqweteddy},
+  title = {ConfigSynthFlow: Configurable Workflows for Synthetic Data Generation.},
+  year = {2025},
   publisher = {GitHub},
-  url = {https://github.com/your-organization/config-synth-flow}
+  url = {https://github.com/aqweteddy/ConfigSynthFlow}
 }
 ```
