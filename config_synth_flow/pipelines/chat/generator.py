@@ -191,7 +191,12 @@ class ChatGenerator(AsyncChatBasePipeline):
         elif template is None:
             return None
 
-    def get_messages(self, dct: dict) -> tuple[list[dict], list[dict]]:
+    def get_messages(
+        self,
+        dct: dict,
+        system_template: PromptTemplate | None = None,
+        user_template: PromptTemplate | None = None,
+    ) -> tuple[list[dict], list[dict]]:
         """Generate chat messages and their prompt types from templates.
 
         Args:
@@ -203,8 +208,8 @@ class ChatGenerator(AsyncChatBasePipeline):
                 - prompt_types: List of dictionaries with template type information
         """
         messages, prompt_type = [], []
-        system_template = self.system_template
-        user_template = self.user_template
+        system_template = system_template or self.system_template
+        user_template = user_template or self.user_template
         if system_template:
             messages.append({"role": "system", "content": system_template.render(**dct)})
             prompt_type.append({"role": "system", "type": system_template.name})

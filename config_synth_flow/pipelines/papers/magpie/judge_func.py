@@ -1,5 +1,5 @@
 from hanzidentifier import has_chinese, is_traditional
-
+import json
 
 def only_traditional_chinese(dct: dict, messages_col: str = "messages") -> bool:
     for message in dct[messages_col]:
@@ -31,7 +31,17 @@ def num_chars(
     return True
 
 
-def banned_words(dct: dict, message_col: str = "messages", banned_words: list[str] = None) -> bool:
+global_banned_words = None
+def banned_words(dct: dict, message_col: str = "messages", banned_words: list[str] = None, from_file: str = None) -> bool:
+    global global_banned_words
+    if global_banned_words is None:
+        if from_file:
+            print(f"Loading banned words from {from_file}")
+            with open(from_file) as f:
+                global_banned_words = json.load(f)
+        else:
+            global_banned_words = []
+    
     messages = dct[message_col]
     banned_words = banned_words or [
         "文章",
@@ -43,7 +53,17 @@ def banned_words(dct: dict, message_col: str = "messages", banned_words: list[st
         "上文",
         "引用",
         "無法回答",
+        "這項",
+        "背景知識",
+        "根據資料",
+        "背景內容",
+        "背景資料",
+        "提供的資料",
+        "以上內容",
+        "根據上列",
     ]
+    banned_words = global_banned_words + banned_words
+    
     for message in messages:
         if any(word in message["content"] for word in banned_words):
             return False

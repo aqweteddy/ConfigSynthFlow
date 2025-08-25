@@ -1,11 +1,11 @@
 from copy import deepcopy
-from typing import Any
+from typing import Any, Optional
 
 from transformers import AutoTokenizer
 
 from config_synth_flow.base import PromptTemplate
-from config_synth_flow.pipelines.chat import ChatGenerator
 from config_synth_flow.base.validator import Validator
+from config_synth_flow.pipelines.chat import ChatGenerator
 
 
 class Magpie(ChatGenerator):
@@ -44,98 +44,151 @@ class Magpie(ChatGenerator):
             for validator in validator_list:
                 self.validator_list.append(Validator(**validator))
 
-    def get_magpie_prompt(self, messages: list[dict]) -> str:
+    def get_magpie_prompt(self, messages: list[dict[str, str]]) -> str:
+        """Generate a prompt for the Magpie model using the tokenizer's chat template.
+        
+        Args:
+            messages: List of message dictionaries with 'role' and 'content' keys
+            
+        Returns:
+            Formatted prompt string ready for completion
+        """
+        add_generation_prompt = messages[-1]['role'] == 'user'
         prompt = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=False
+            messages, tokenize=False, add_generation_prompt=add_generation_prompt, enable_thinking=False
         )
 
-        if messages[-1]["role"] in ["system", "assistant"]:
+        if not add_generation_prompt:
             prompt = prompt + self.user_prefix
-        else:
-            prompt = prompt + self.assistant_prefix
-
+        
         return prompt
 
-    async def get_validator_result(self, dct: dict) -> tuple[bool, dict[str, float]]:
-        scores = {}
-        if self.validator_list:
-            for validator in self.validator_list:
-                valid, score = await validator.validate(dct, save_judge_result=True)
-                scores[validator.name] = score
-                if not valid:
-                    return False, scores
-        return True, scores
-
-    async def get_magpie_one_turn(self, messages: list[dict]) -> list[dict]:
-        prompt = self.get_magpie_prompt(messages)
-        new_messages = []
-        for _ in range(self.max_retries):
+    async def _generate_completion_with_retry(
+        self, 
+        prompt: str, 
+        max_tokens: int, 
+        role: str
+    ) -> Optional[str]:
+        """Generate a completion with retry logic.
+        
+        Args:
+            prompt: The input prompt
+            max_tokens: Maximum tokens to generate
+            role: Role for logging purposes ('user' or 'assistant')
+            
+        Returns:
+            Generated content or None if all retries failed
+        """
+        for attempt in range(self.max_retries):
             try:
-                resp = await self.completion(prompt=prompt, max_tokens=self.user_max_tokens)
+                resp = await self.completion(prompt=prompt, max_tokens=max_tokens)
+                if resp.choices[0].finish_reason == "stop":
+                    return resp.choices[0].text.strip("\n").strip()
             except Exception as e:
-                self.logger.warning(f"User message generation error: {e}")
+                self.logger.warning(f"{role.title()} message generation error (attempt {attempt + 1}): {e}")
                 continue
-            if resp.choices[0].finish_reason == "stop":
-                new_messages.append(
-                    {"role": "user", "content": resp.choices[0].text.strip("\\n").strip()}
-                )
-                break
-        else:
-            self.logger.warning(
-                f"cannot generate messages after {self.max_retries} retries. Skip this turn."
-            )
-            return []
+        
+        self.logger.warning(f"Failed to generate {role} message after {self.max_retries} retries")
+        return None
 
-        prompt = self.get_magpie_prompt(messages + new_messages)
-        for _ in range(self.max_retries):
-            try:
-                resp = await self.completion(prompt=prompt, max_tokens=self.assistant_max_tokens)
-            except Exception as e:
-                self.logger.warning(f"Assistant message generation error: {e}")
-                continue
-            if resp.choices[0].finish_reason == "stop":
-                new_messages.append(
-                    {"role": "assistant", "content": resp.choices[0].text.strip("\\n").strip()}
-                )
-                break
-        else:
+    async def get_magpie_one_turn(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Generate one complete turn (user + assistant) of conversation.
+        
+        Args:
+            messages: Existing conversation messages
+            
+        Returns:
+            List containing new user and assistant messages, or empty list if generation failed
+        """
+        # Generate user message
+        user_prompt = self.get_magpie_prompt(messages)
+        user_content = await self._generate_completion_with_retry(
+            user_prompt, self.user_max_tokens, "user"
+        )
+        
+        if user_content is None:
             return []
-
+        
+        new_messages = [{"role": "user", "content": user_content}]
+        
+        # Generate assistant message
+        assistant_prompt = self.get_magpie_prompt(messages + new_messages)
+        assistant_content = await self._generate_completion_with_retry(
+            assistant_prompt, self.assistant_max_tokens, "assistant"
+        )
+        
+        if assistant_content is None:
+            return []
+        
+        new_messages.append({"role": "assistant", "content": assistant_content})
         return new_messages
 
-    async def run_each(self, dct: dict) -> dict:
+    async def _validate_messages(self, dct: dict[str, Any], messages: list[dict[str, str]]) -> tuple[bool, dict[str, float]]:
+        """Validate generated messages using configured validators.
+        
+        Args:
+            dct: Base dictionary for validation context
+            messages: Messages to validate
+            
+        Returns:
+            Tuple of (is_valid, validation_scores)
+        """
+        if not self.validator_list:
+            return True, {}
+        
+        validation_dict = deepcopy(dct)
+        validation_dict[self.output_col] = messages[:]
+        
+        return await self.get_validator_result(validation_dict)
+
+    async def run_each(self, dct: dict[str, Any]) -> dict[str, Any]:
+        """Process a single input dictionary to generate multi-turn conversations.
+        
+        Args:
+            dct: Input dictionary containing conversation context
+            
+        Returns:
+            Dictionary with generated messages, prompt types, and validation scores
+        """
+        system_template = self.system_template
+        
         messages, prompt_types = self.get_messages(
-            dct
-        )  # list[dct[system_prompt]], list[dct[prompt_type]]
+            dct, system_template=system_template
+        )
 
         retry_cnt = 0
         valid_scores_list = []
-        while len(messages) <= self.max_turns // 2:
+        max_conversation_turns = self.max_turns // 2
+        
+        while len(messages) <= max_conversation_turns:
             new_messages = await self.get_magpie_one_turn(messages)
             if not new_messages:
-                self.logger.warning(
-                    f"cannot generate messages after {self.max_retries} retries. Skip this turn."
-                )
+                self.logger.warning("Cannot generate messages. Skipping this turn.")
                 continue
+            
+            # Extend messages and validate
             messages.extend(new_messages)
-
-            # validate the generated messages
-            cpy_dct = deepcopy(dct)
-            cpy_dct[self.output_col] = messages[:]
-            valid_res, valid_scores = await self.get_validator_result(cpy_dct)
+            valid_res, valid_scores = await self._validate_messages(dct, messages)
+            
             if not valid_res:
+                # Remove the failed turn and increment retry counter
                 messages = messages[:-2]
                 retry_cnt += 1
+                
                 if retry_cnt > self.max_retries:
                     self.logger.warning(
-                        f"Max retries reached. Returning the last valid messages. {messages}"
+                        f"Max retries ({self.max_retries}) reached. "
+                        f"Returning conversation with {len(messages)} messages."
                     )
                     break
             else:
+                # Reset retry counter and save validation scores
                 retry_cnt = 0
                 valid_scores_list.append([valid_scores])
 
+        # Update output dictionary
         dct[self.output_col] = messages
         dct[self.prompt_type_col] = prompt_types
         dct[self.valid_col] = valid_scores_list
+        
         return dct
